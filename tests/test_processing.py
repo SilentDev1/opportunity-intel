@@ -1,4 +1,4 @@
-from opportunity_intel.processing import extract_manchester_projects
+from opportunity_intel.processing import extract_manchester_projects, is_commercial_candidate
 
 
 def test_extracts_commercial_and_suppresses_residential():
@@ -17,3 +17,9 @@ III. BUSINESS MEETING:"""
     assert projects[0]["project_id"] == "SP2026-011"
     assert projects[0]["applicant"] == "Aranosian Oil Company, Inc"
     assert projects[0]["address"] == "1265 South Willow Street"
+
+
+def test_false_positive_regressions_keep_mixed_use_commercial():
+    assert not is_commercial_candidate("Four standalone residential condominiums in office zone")
+    assert not is_commercial_candidate("Three single-family dwellings for Regan Electric")
+    assert is_commercial_candidate("Mixed-use redevelopment with new commercial space")

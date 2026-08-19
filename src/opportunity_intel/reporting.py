@@ -1,10 +1,10 @@
 import csv
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -73,6 +73,24 @@ VENDOR_PROFILES: dict[str, dict[str, Any]] = {
     "commercial_insurance": {
         "service_categories": ["commercial_insurance"],
         "target_industries": [],
+    },
+    "signage": {"service_categories": ["signage"], "target_industries": []},
+    "telecom_internet": {
+        "service_categories": ["telecom", "internet", "networking"],
+        "target_industries": [],
+    },
+    "payroll": {"service_categories": ["payroll"], "target_industries": []},
+    "waste_management": {
+        "service_categories": ["waste_management"],
+        "target_industries": ["restaurant", "retail", "warehouse/logistics"],
+    },
+    "landscaping_snow": {
+        "service_categories": ["landscaping", "snow_removal"],
+        "target_industries": [],
+    },
+    "pos_payments": {
+        "service_categories": ["pos", "payment_processing"],
+        "target_industries": ["restaurant", "retail"],
     },
 }
 
@@ -196,6 +214,8 @@ def detailed_validation_report(db: Session) -> dict[str, Any]:
     report["by_city"] = {key: dict(value) for key, value in sorted(by_city.items())}
     report["by_industry"] = {key: dict(value) for key, value in sorted(by_industry.items())}
     report["by_source"] = {key: dict(value) for key, value in sorted(by_source.items())}
+    report["multi_signal"] = multi_signal_metrics(db)
+    report["contactability"] = contactability_metrics(db)
     return report
 
 
@@ -239,6 +259,119 @@ def vendor_simulation(db: Session, actionable_only: bool = True) -> dict[str, An
             "strong_matches": strong,
         }
     return simulations
+
+
+def timing_value(stage: str, signal_types: set[str]) -> tuple[str, str]:
+    if stage in {"OPEN", "CLOSED", "STALE", "CANCELLED"}:
+        return "LOW", "The useful pre-opening sales window has passed or the project is inactive."
+    if stage in {"BUILDOUT", "LOCATION_CONFIRMED"}:
+        return "HIGH", "The location is known while vendors can still influence buildout choices."
+    if stage in {"PRE_OPENING", "FINAL_PREP"} or "hiring_started" in signal_types:
+        return (
+            "MEDIUM",
+            "The business is approaching opening, so the remaining sales window is short.",
+        )
+    return "MEDIUM", "Planning evidence is early, but tenant identity or project timing may change."
+
+
+def freshness(opportunity: Opportunity, today: date | None = None) -> str:
+    today = today or date.today()
+    if opportunity.stage in {"OPEN", "CANCELLED"}:
+        return opportunity.stage
+    if opportunity.stage == "STALE":
+        return "STALE"
+    last = (opportunity.last_signal_at or opportunity.first_detected_at).date()
+    age = (today - last).days
+    if age <= 14:
+        return "NEW"
+    if age <= 60:
+        return "ACTIVE"
+    if age <= 120:
+        return "AGING"
+    return "STALE"
+
+
+def multi_signal_metrics(db: Session) -> dict[str, Any]:
+    reviews = latest_reviews(db)
+    buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    for opportunity in db.scalars(select(Opportunity)):
+        count = (
+            db.scalar(
+                select(func.count())
+                .select_from(Signal)
+                .where(
+                    Signal.organization_id == opportunity.organization_id,
+                    Signal.location_id == opportunity.location_id,
+                )
+            )
+            or 0
+        )
+        bucket = "1" if count <= 1 else "2" if count == 2 else "3" if count == 3 else "4+"
+        verdict = reviews.get(opportunity.id)
+        buckets[bucket]["opportunities"] += 1
+        if verdict:
+            buckets[bucket]["reviewed"] += 1
+            buckets[bucket][verdict.verdict] += 1
+    result: dict[str, dict[str, Any]] = {}
+    for bucket in ["1", "2", "3", "4+"]:
+        values = buckets[bucket]
+        result[bucket] = dict(values)
+        result[bucket]["actionable_rate"] = (
+            round(values["actionable"] / values["reviewed"] * 100, 1)
+            if values["reviewed"]
+            else None
+        )
+    return result
+
+
+def contactability_metrics(db: Session) -> dict[str, Any]:
+    reviews = latest_reviews(db)
+    actionable = [
+        db.get(Organization, opportunity.organization_id)
+        for opportunity in db.scalars(select(Opportunity))
+        if reviews.get(opportunity.id) and reviews[opportunity.id].verdict == "actionable"
+    ]
+    contactable = sum(bool(org and (org.website or org.phone or org.email)) for org in actionable)
+    return {
+        "actionable": len(actionable),
+        "with_legitimate_contact_route": contactable,
+        "contactability_rate": round(contactable / len(actionable) * 100, 1)
+        if actionable
+        else None,
+    }
+
+
+def weekly_cohort(db: Session, period_start: date, period_end: date) -> dict[str, Any]:
+    start = datetime.combine(period_start, datetime.min.time())
+    end = datetime.combine(period_end + timedelta(days=1), datetime.min.time())
+    signals = list(
+        db.scalars(select(Signal).where(Signal.detected_at >= start, Signal.detected_at < end))
+    )
+    opportunities = list(
+        db.scalars(
+            select(Opportunity).where(
+                Opportunity.first_detected_at >= start, Opportunity.first_detected_at < end
+            )
+        )
+    )
+    new_keys = {(item.organization_id, item.location_id) for item in opportunities}
+    updated_keys = {
+        (signal.organization_id, signal.location_id)
+        for signal in signals
+        if (signal.organization_id, signal.location_id) not in new_keys
+    }
+    reviews = latest_reviews(db)
+    verdicts = Counter(reviews[item.id].verdict for item in opportunities if item.id in reviews)
+    return {
+        "period": {"start": period_start.isoformat(), "end": period_end.isoformat()},
+        "new_signals": len(signals),
+        "new_candidate_opportunities": len(opportunities),
+        "new_actionable_opportunities": verdicts["actionable"],
+        "false_positives": verdicts["false_positive"],
+        "duplicates": verdicts["duplicate"],
+        "stale_cancelled": verdicts["stale"] + verdicts["cancelled"],
+        "existing_opportunities_updated": len(updated_keys),
+    }
 
 
 def export_validation_csv(db: Session, path: Path) -> int:
@@ -316,6 +449,174 @@ def export_validation_csv(db: Session, path: Path) -> int:
                     "review_note": review.notes if review else "",
                     "source_count": len({signal.source_id for signal in signals}),
                     "vendor_needs": ";".join(sorted(needs)),
+                }
+            )
+            rows += 1
+    return rows
+
+
+def export_actionable_matrix(db: Session, path: Path) -> int:
+    reviews = latest_reviews(db)
+    vendor_names = list(VENDOR_PROFILES)
+    fields = [
+        "organization",
+        "city",
+        "address",
+        "industry",
+        "stage",
+        "score",
+        "stage_confidence",
+        "signal_count",
+        "source_types",
+        "timing_value",
+        "timing_reason",
+        "contact_route",
+        *vendor_names,
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = 0
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for opportunity, org, location in db.execute(
+            select(Opportunity, Organization, Location)
+            .join(Organization, Opportunity.organization_id == Organization.id)
+            .join(Location, Opportunity.location_id == Location.id)
+        ):
+            if not reviews.get(opportunity.id) or reviews[opportunity.id].verdict != "actionable":
+                continue
+            signals = list(
+                db.scalars(
+                    select(Signal).where(
+                        Signal.organization_id == opportunity.organization_id,
+                        Signal.location_id == opportunity.location_id,
+                    )
+                )
+            )
+            needs = list(
+                db.scalars(
+                    select(InferredNeed.service_category).where(
+                        InferredNeed.opportunity_id == opportunity.id
+                    )
+                )
+            )
+            source_types = set(
+                db.scalars(
+                    select(Source.source_type).where(Source.id.in_([s.source_id for s in signals]))
+                )
+            )
+            value, reason = timing_value(
+                opportunity.stage, {signal.signal_type for signal in signals}
+            )
+            item = {
+                "industry": org.industry,
+                "city": location.city,
+                "stage": opportunity.stage,
+                "score": opportunity.score,
+                "service_categories": needs,
+            }
+            row: dict[str, Any] = {
+                "organization": org.dba_name or org.canonical_name,
+                "city": location.city,
+                "address": location.address_line_1,
+                "industry": org.industry,
+                "stage": opportunity.stage,
+                "score": opportunity.score,
+                "stage_confidence": opportunity.stage_confidence,
+                "signal_count": len(signals),
+                "source_types": ";".join(sorted(source_types)),
+                "timing_value": value,
+                "timing_reason": reason,
+                "contact_route": org.website or org.phone or org.email or "",
+            }
+            for name, profile in VENDOR_PROFILES.items():
+                row[name] = match_profile(item, {**profile, "cities": [location.city]})[
+                    "match_score"
+                ]
+            writer.writerow(row)
+            rows += 1
+    return rows
+
+
+def export_vendor_validation(db: Session, vendor_name: str, path: Path) -> int:
+    if vendor_name not in VENDOR_PROFILES:
+        raise ValueError(f"Unknown vendor profile: {vendor_name}")
+    reviews = latest_reviews(db)
+    profile = VENDOR_PROFILES[vendor_name]
+    fields = [
+        "business",
+        "city",
+        "industry",
+        "stage",
+        "why_it_matches",
+        "why_now",
+        "evidence_summary",
+        "estimated_opening_window",
+        "official_public_contact_route",
+        "source_provenance",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = 0
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for opportunity, org, location in db.execute(
+            select(Opportunity, Organization, Location)
+            .join(Organization, Opportunity.organization_id == Organization.id)
+            .join(Location, Opportunity.location_id == Location.id)
+        ):
+            review = reviews.get(opportunity.id)
+            if not review or review.verdict != "actionable":
+                continue
+            signals = list(
+                db.scalars(
+                    select(Signal).where(
+                        Signal.organization_id == opportunity.organization_id,
+                        Signal.location_id == opportunity.location_id,
+                    )
+                )
+            )
+            needs = list(
+                db.scalars(
+                    select(InferredNeed.service_category).where(
+                        InferredNeed.opportunity_id == opportunity.id
+                    )
+                )
+            )
+            match = match_profile(
+                {
+                    "industry": org.industry,
+                    "city": location.city,
+                    "stage": opportunity.stage,
+                    "score": opportunity.score,
+                    "service_categories": needs,
+                },
+                {**profile, "cities": [location.city]},
+            )
+            if float(match["match_score"]) < 50:
+                continue
+            _, why_now = timing_value(opportunity.stage, {signal.signal_type for signal in signals})
+            writer.writerow(
+                {
+                    "business": org.dba_name or org.canonical_name,
+                    "city": location.city,
+                    "industry": org.industry,
+                    "stage": opportunity.stage,
+                    "why_it_matches": "; ".join(match["why_it_matches"]),
+                    "why_now": why_now,
+                    "evidence_summary": review.notes,
+                    "estimated_opening_window": " to ".join(
+                        str(value)
+                        for value in [
+                            opportunity.estimated_open_start,
+                            opportunity.estimated_open_end,
+                        ]
+                        if value
+                    ),
+                    "official_public_contact_route": org.website or org.phone or org.email or "",
+                    "source_provenance": "; ".join(
+                        sorted({signal.source_url for signal in signals})
+                    ),
                 }
             )
             rows += 1

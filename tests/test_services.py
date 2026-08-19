@@ -38,6 +38,11 @@ def test_stage_uses_strongest_signal_and_corroboration():
     assert stage.value == "PRE_OPENING" and confidence > 0.84 and "job_posting signal" in reasons
 
 
+def test_withdrawn_project_is_cancelled():
+    stage, confidence, _ = infer_stage([signal("project_withdrawn")])
+    assert stage.value == "CANCELLED" and confidence == 0.95
+
+
 def test_scoring_is_explainable_and_recency_sensitive():
     recent, _ = score_opportunity([signal("building_permit")], 0.9, now=datetime.utcnow())
     old, breakdown = score_opportunity(

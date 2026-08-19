@@ -12,7 +12,9 @@ from .processing import process_manchester, process_phase_05
 from .registry import seed_sources
 from .reporting import (
     detailed_validation_report,
+    export_actionable_matrix,
     export_validation_csv,
+    export_vendor_validation,
     import_review_csv,
     review_opportunity,
     vendor_simulation,
@@ -95,3 +97,19 @@ def export_validation(path: Path = Path("data/exports/validation.csv")) -> None:
 def simulate_vendors() -> None:
     with SessionLocal() as db:
         typer.echo(json.dumps(vendor_simulation(db), indent=2))
+
+
+@app.command("export-actionable-matrix")
+def export_matrix(path: Path = Path("data/exports/phase05-actionable-matrix.csv")) -> None:
+    with SessionLocal() as db:
+        count = export_actionable_matrix(db, path)
+        typer.echo(f"Exported {count} actionable opportunities to {path}")
+
+
+@app.command("export-vendor-validation")
+def export_vendor(
+    vendor_name: str, path: Path = Path("data/exports/vendor-validation.csv")
+) -> None:
+    with SessionLocal() as db:
+        count = export_vendor_validation(db, vendor_name, path)
+        typer.echo(f"Exported {count} {vendor_name} matches to {path}")

@@ -262,6 +262,21 @@ COMMERCIAL_USE = re.compile(
     r"school|education|mixed-use",
     re.I,
 )
+NON_COMMERCIAL_PROJECT = re.compile(
+    r"single.family|two.family|multifamily|multi.family|dwelling units?|residential units?|"
+    r"condominiums?|townhomes?|subdivision.{0,80}(?:lots?|dwellings?)|municipal playground|"
+    r"elementary school|shoreline trail",
+    re.I,
+)
+
+
+def is_commercial_candidate(description: str) -> bool:
+    """Reject known non-commercial project uses even when owner/zoning text looks commercial."""
+    if NON_COMMERCIAL_PROJECT.search(description) and not re.search(
+        r"commercial space|mixed.use.*commercial|retail space", description, re.I
+    ):
+        return False
+    return bool(COMMERCIAL_USE.search(description))
 
 
 def _upsert_evidence_project(
@@ -576,9 +591,9 @@ def process_portsmouth(db: Session) -> int:
         for match in pattern.finditer(text):
             name, address = clean(match.group(1)), clean(match.group(3))
             description = clean(match.group(4))
-            if not COMMERCIAL_USE.search(description):
+            if not is_commercial_candidate(description):
                 continue
-            key = f"portsmouth:{normalize_name(name)}:{normalize_address(address)}"
+            key = f"portsmouth:{normalize_address(address)}"
             found[key] = (name, address, description, signal_date, record, document)
     created = 0
     for key, (name, address, description, signal_date, record, document) in found.items():
@@ -622,7 +637,7 @@ def process_salem(db: Session) -> int:
                 clean(match.group(2)),
                 clean(match.group(3)),
             )
-            if not COMMERCIAL_USE.search(description) and name.casefold() != "wonder":
+            if not is_commercial_candidate(description) and name.casefold() != "wonder":
                 continue
             key = f"salem:{normalize_name(name)}:{normalize_address(address)}"
             found[key] = (name, address, description, record, document)
@@ -853,6 +868,71 @@ def process_nashua(db: Session) -> int:
     return created
 
 
+def process_salem_permits(db: Session) -> int:
+    source, rows = _source_rows(db, "Salem Issued Building Permits (Historical)")
+    if not source:
+        return 0
+    created = 0
+    high_value = re.compile(
+        r"CHANGE OF OCCUPANT|TENANT FIT|NEW CONSTRUCTION--COMMERCIAL|RESTAURANT FIT|"
+        r"CERTIFICATE OF OCCUPANCY|NEW (?:RESTAURANT|RETAIL|OFFICE)",
+        re.I,
+    )
+    permit_type = re.compile(
+        r"ALTERATION--COMMERCIAL|CHANGE OF OCCUPANT--\s*COMMERCIAL|"
+        r"NEW OCCUPANT--NO CONSTRUCTION|NEW CONSTRUCTION--COMMERCIAL|"
+        r"CERTIFICATE OF OCCUPANCY|TEMPORARY EVENT",
+        re.I,
+    )
+    for record, document in rows:
+        description = clean(record.extracted_text or "")
+        if not high_value.search(description) or "TEMPORARY EVENT" in description.upper():
+            continue
+        address = re.sub(
+            r"^(\d+)([A-Z])", r"\1 \2", str(record.raw_payload.get("address") or "").strip()
+        )
+        issued = str(record.raw_payload.get("issued_date") or "")
+        if not address or not issued:
+            continue
+        body = re.sub(r"^B-\d{2}-\d+\s+\d{1,2}/\d{1,2}/\d{4}\s+", "", description)
+        before_type = permit_type.split(body, maxsplit=1)[0]
+        candidate_name = (
+            clean(before_type[len(address) :]) if before_type.startswith(address) else ""
+        )
+        if "-" in candidate_name and re.search(r"\d", candidate_name.split("-", 1)[0]):
+            candidate_name = clean(candidate_name.split("-", 1)[1])
+        candidate_name = re.sub(r"^#[A-Z0-9-]+\s+", "", candidate_name).strip()
+        generic_name = not candidate_name or bool(
+            re.search(r"^(UNIT|SUITE|BUILDING|LOT)\b", candidate_name, re.I)
+        )
+        name = f"Unresolved commercial permit — {address}" if generic_name else candidate_name
+        role = "unresolved_project" if generic_name else "operator"
+        signal_type = (
+            "certificate_of_occupancy"
+            if "CERTIFICATE OF OCCUPANCY" in description.upper()
+            else "building_permit"
+        )
+        created += _upsert_evidence_project(
+            db,
+            source=source,
+            record=record,
+            document=document,
+            project_key=record.external_id,
+            organization_name=name,
+            organization_role=role,
+            address=address,
+            city="Salem",
+            description=description,
+            signal_type=signal_type,
+            signal_date=datetime.strptime(issued, "%m/%d/%Y").date(),
+            industry=classify(description),
+            opportunity_type="new_location",
+            entity_confidence=0.85 if role == "operator" else 0.45,
+        )
+    db.commit()
+    return created
+
+
 def process_phase_05(db: Session) -> dict[str, int]:
     results = {
         "nashua": process_nashua(db),
@@ -861,5 +941,6 @@ def process_phase_05(db: Session) -> dict[str, int]:
         "portsmouth": process_portsmouth(db),
         "salem": process_salem(db),
         "dover": process_dover(db),
+        "salem_permits": process_salem_permits(db),
     }
     return results
