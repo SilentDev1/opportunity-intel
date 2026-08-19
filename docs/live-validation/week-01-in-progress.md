@@ -35,3 +35,8 @@ location-linked opportunities. No Week 2–4 reports exist because those periods
 
 The next update should use the stored collection timestamps and manual decisions at period close;
 numbers above are a starting snapshot, not a completed weekly result.
+# Phase 0.8 collection update — 2026-08-19
+
+Actual collection on this date added 18 Manchester planning documents, 30 Portsmouth planning documents, and 24 Salem historical-permit documents. Processing and review expanded the dataset to 128 reviewed opportunities. The frozen 63-record blind cohort yielded 4 actionable leads; a separate post-fix two-record cohort yielded 2 actionable leads. No later observation period is represented.
+
+Operator/contact work upgraded FedEx, Yatco, Kennebunk Savings, a Bedford speculative-project broker route, and a Keewaydin property-manager route. The original cohort reached 11/17 contactable and 8 A/B vendor-ready leads. No real vendor responses have been received yet.

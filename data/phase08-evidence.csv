@@ -1,0 +1,2 @@
+opportunity_id,source_name,source_type,jurisdiction,source_url,authority_level,is_official,signal_type,signal_family,signal_date,title,description,confidence,allow_stage_change
+9ad4b7e5-ca42-4752-b90b-e255a370c6f9,FedEx official Portsmouth location page,official_company,"Portsmouth, NH",https://local.fedex.com/en-us/nh/portsmouth/psma,4,true,location_announcement,official_company,2026-08-19,FedEx Ship Center at 218 Griffin Road,"FedEx's official location directory identifies its Ship Center at the exact 218 Griffin Road project address.",0.99,false

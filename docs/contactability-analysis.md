@@ -47,3 +47,8 @@ location phone plus Revo's official site, FMCSA's public Aranco business phone, 
 rental site, Wonder's official support route, and Quirk Commercial Trucks' exact-address site and
 phone. Corporate or public-registry contacts are labelled as such rather than presented as a local
 owner.
+# Phase 0.8 update — 2026-08-19
+
+The original 17-actionable cohort now has 11 verified contactable records (64.7%), up from 6 (35.3%). Utility distribution is 3 LOCAL_DIRECT, 5 BUSINESS_GENERAL, 1 CORPORATE, 1 DEVELOPER, 1 PROPERTY_MANAGER, and 6 UNKNOWN. The last two categories are legitimate reachability paths but intentionally cannot make a lead A/B-ready.
+
+The expanded corpus has 23 actionables and 11 contactable (47.8%); the four main blind-batch actionables and two post-fix actionables have not yet been enriched. Lifecycle fields now retain first operator identification and first contactability. Legacy timestamps are incomplete, so only three same-day actionable-to-contactable intervals are measurable and no longitudinal conclusion is warranted.

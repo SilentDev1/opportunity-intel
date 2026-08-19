@@ -41,3 +41,8 @@ Record responses using `data/vendor-feedback-template.csv`. Its rows are intenti
 Supported future outcomes are `NOT_REVIEWED`, `REVIEWED_USEFUL`, `REVIEWED_NOT_USEFUL`,
 `CONTACT_ATTEMPTED`, `CONTACTED`, `MEETING`, `QUOTE`, `CUSTOMER_WON`, `NO_RESPONSE`, and
 `BAD_LEAD`.
+# Phase 0.8 update — 2026-08-19
+
+Five plain-language CSV packets are available under `data/exports/vendor-ready/`: commercial cleaning (8), IT/MSP (8), commercial insurance (8), security/access control (4), and pest control (3). Only A/B leads are eligible; C leads are excluded. Each row includes the business, location, event, stage, timing explanation, category relevance, verified contact route, evidence, provenance, and last update.
+
+There are eight distinct A/B leads, not ten. No vendor feedback has been received or invented. The packet is ready for internal audit and prospective vendor presentation only after the lead-count/precision concerns in the Phase 0.8 report are accepted.
