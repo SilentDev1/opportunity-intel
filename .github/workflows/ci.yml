@@ -1,0 +1,27 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env: {POSTGRES_DB: opportunity_intel, POSTGRES_USER: opportunity, POSTGRES_PASSWORD: opportunity}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U opportunity" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://opportunity:opportunity@localhost:5432/opportunity_intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src
+      - run: uv run alembic upgrade head
+      - run: uv run alembic downgrade base
+      - run: uv run alembic upgrade head
+      - run: uv run pytest
