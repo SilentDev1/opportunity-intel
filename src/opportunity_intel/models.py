@@ -317,6 +317,15 @@ class OpportunityEnrichment(Base, TimestampMixin):
     vendor_readiness_band: Mapped[str] = mapped_column(String(20), default="LOW", index=True)
     vendor_readiness_tier: Mapped[str] = mapped_column(String(20), default="NOT_READY", index=True)
     vendor_readiness_breakdown: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    freshness_status: Mapped[str] = mapped_column(String(20), default="HISTORICAL", index=True)
+    source_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_observed_live_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_actionable_live_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_meaningful_signal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cleaning_relevance_score: Mapped[float] = mapped_column(Float, default=0, index=True)
+    cleaning_lead_tier: Mapped[str] = mapped_column(String(20), default="NOT_RELEVANT", index=True)
+    cleaning_score_breakdown: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
 class VendorFeedback(Base):
@@ -333,6 +342,14 @@ class VendorFeedback(Base):
     rating: Mapped[int | None] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(Text)
     outcome_status: Mapped[str] = mapped_column(String(40), default="NOT_REVIEWED", index=True)
+    weekly_list_saves_time: Mapped[bool | None] = mapped_column(Boolean)
+    good_leads_per_month: Mapped[int | None] = mapped_column(Integer)
+    missing_information: Mapped[str | None] = mapped_column(Text)
+    willing_to_pay_49: Mapped[bool | None] = mapped_column(Boolean)
+    willing_to_pay_79: Mapped[bool | None] = mapped_column(Boolean)
+    willing_to_pay_99: Mapped[bool | None] = mapped_column(Boolean)
+    willing_to_pay_149: Mapped[bool | None] = mapped_column(Boolean)
+    reasonable_monthly_price: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

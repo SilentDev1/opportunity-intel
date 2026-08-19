@@ -460,6 +460,8 @@ def import_enrichment_csv(db: Session, path: Path) -> dict[str, int]:
             if not opportunity:
                 raise ValueError(f"Unknown opportunity: {row['opportunity_id']}")
             target_org = db.get(Organization, opportunity.organization_id)
+            if target_org and row.get("opportunity_industry", "").strip():
+                target_org.industry = row["opportunity_industry"].strip()
             operator_name = row.get("operator_name", "").strip()
             if (
                 operator_name
@@ -749,6 +751,18 @@ def import_vendor_feedback_csv(db: Session, path: Path) -> int:
                     rating=rating,
                     comment=row.get("comment") or None,
                     outcome_status=outcome,
+                    weekly_list_saves_time=optional_bool(row.get("weekly_list_saves_time", "")),
+                    good_leads_per_month=int(row["good_leads_per_month"])
+                    if row.get("good_leads_per_month")
+                    else None,
+                    missing_information=row.get("missing_information") or None,
+                    willing_to_pay_49=optional_bool(row.get("willing_to_pay_49", "")),
+                    willing_to_pay_79=optional_bool(row.get("willing_to_pay_79", "")),
+                    willing_to_pay_99=optional_bool(row.get("willing_to_pay_99", "")),
+                    willing_to_pay_149=optional_bool(row.get("willing_to_pay_149", "")),
+                    reasonable_monthly_price=float(row["reasonable_monthly_price"])
+                    if row.get("reasonable_monthly_price")
+                    else None,
                     created_at=datetime.fromisoformat(row["created_at"])
                     if row.get("created_at")
                     else datetime.utcnow(),

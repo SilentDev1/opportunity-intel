@@ -16,6 +16,7 @@ from .enrichment import (
     refresh_enrichment,
 )
 from .models import Opportunity, Source
+from .phase09 import export_cleaning_packet, refresh_phase09_metrics, weekly_cleaning_flow
 from .processing import process_manchester, process_phase_05
 from .registry import seed_sources
 from .reporting import (
@@ -178,3 +179,30 @@ def freeze_batch(name: str, source_scope: str, opportunity_ids: str) -> None:
 def record_batch_reviews(name: str) -> None:
     with SessionLocal() as db:
         typer.echo(json.dumps(record_blind_reviews(db, name), indent=2))
+
+
+@app.command("refresh-phase09")
+def refresh_phase09(period_start: str = "2026-08-17", period_end: str = "2026-08-23") -> None:
+    from datetime import date
+
+    with SessionLocal() as db:
+        counts = refresh_phase09_metrics(
+            db, date.fromisoformat(period_start), date.fromisoformat(period_end)
+        )
+        flow = weekly_cleaning_flow(
+            db, date.fromisoformat(period_start), date.fromisoformat(period_end)
+        )
+        typer.echo(json.dumps({"classified": dict(counts), "weekly_flow": flow}, indent=2))
+
+
+@app.command("export-cleaning-packet")
+def export_cleaning(
+    path: Path = Path("data/exports/vendor-ready/cleaning/statewide.csv"),
+    territory: str = "statewide",
+    fresh_only: bool = False,
+) -> None:
+    if territory not in {"statewide", "southern_nh"}:
+        raise typer.BadParameter("Territory must be statewide or southern_nh")
+    with SessionLocal() as db:
+        count = export_cleaning_packet(db, path, territory, fresh_only)
+        typer.echo(f"Exported {count} cleaning leads to {path}")

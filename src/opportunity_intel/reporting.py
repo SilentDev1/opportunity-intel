@@ -431,6 +431,18 @@ def source_value_metrics(db: Session) -> list[dict[str, Any]]:
             if (enrichment := db.get(OpportunityEnrichment, item_id))
             and enrichment.vendor_readiness_tier in {"A", "B"}
         )
+        fresh_actionable = sum(
+            1
+            for item_id in actionable_ids
+            if (enrichment := db.get(OpportunityEnrichment, item_id))
+            and enrichment.freshness_status == "FRESH"
+        )
+        contactable = sum(
+            1
+            for item_id in actionable_ids
+            if (enrichment := db.get(OpportunityEnrichment, item_id))
+            and enrichment.contactability_status == "CONTACTABLE"
+        )
         operator_resolved = sum(
             1
             for item_id in actionable_ids
@@ -481,7 +493,9 @@ def source_value_metrics(db: Session) -> list[dict[str, Any]]:
                 "signals": len(signals),
                 "candidate_opportunities": len(opportunity_ids),
                 "actionable_opportunities": len(actionable_ids),
+                "fresh_actionable_opportunities": fresh_actionable,
                 "operators_resolved": operator_resolved,
+                "contactable_opportunities": contactable,
                 "contacts_discovered": contacts_discovered,
                 "corroborations_added": corroborations,
                 "stage_transitions": stage_transitions,
@@ -548,6 +562,14 @@ def export_validation_csv(db: Session, path: Path) -> int:
         "contactability_status",
         "contact_utility_class",
         "contact_utility_score",
+        "freshness_status",
+        "source_event_at",
+        "source_published_at",
+        "first_observed_live_at",
+        "first_actionable_live_at",
+        "last_meaningful_signal_at",
+        "cleaning_relevance_score",
+        "cleaning_lead_tier",
         "official_website",
         "business_phone",
         "business_email",
@@ -644,6 +666,24 @@ def export_validation_csv(db: Session, path: Path) -> int:
                     if enrichment
                     else "UNKNOWN",
                     "contact_utility_score": enrichment.contact_utility_score if enrichment else 0,
+                    "freshness_status": enrichment.freshness_status if enrichment else "HISTORICAL",
+                    "source_event_at": enrichment.source_event_at if enrichment else None,
+                    "source_published_at": enrichment.source_published_at if enrichment else None,
+                    "first_observed_live_at": enrichment.first_observed_live_at
+                    if enrichment
+                    else None,
+                    "first_actionable_live_at": enrichment.first_actionable_live_at
+                    if enrichment
+                    else None,
+                    "last_meaningful_signal_at": enrichment.last_meaningful_signal_at
+                    if enrichment
+                    else None,
+                    "cleaning_relevance_score": enrichment.cleaning_relevance_score
+                    if enrichment
+                    else 0,
+                    "cleaning_lead_tier": enrichment.cleaning_lead_tier
+                    if enrichment
+                    else "NOT_RELEVANT",
                     "official_website": by_type.get("website", ""),
                     "business_phone": by_type.get("phone", ""),
                     "business_email": by_type.get("email", ""),
