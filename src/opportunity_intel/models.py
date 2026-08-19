@@ -258,4 +258,28 @@ class ManualReview(Base):
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class OpportunityOrganizationRole(Base):
+    __tablename__ = "opportunity_organization_roles"
+    __table_args__ = (UniqueConstraint("opportunity_id", "organization_id", "role"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), index=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    role: Mapped[str] = mapped_column(String(40))
+    confidence: Mapped[float] = mapped_column(Float)
+    evidence: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("sources.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class StageHistory(Base):
+    __tablename__ = "stage_history"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), index=True)
+    from_stage: Mapped[str | None] = mapped_column(String(30))
+    to_stage: Mapped[str] = mapped_column(String(30))
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    reason: Mapped[str] = mapped_column(Text)
+    triggering_signal_id: Mapped[str | None] = mapped_column(ForeignKey("signals.id"))
+
+
 Index("ix_location_normalized", Location.city, Location.address_line_1)

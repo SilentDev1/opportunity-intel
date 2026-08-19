@@ -24,6 +24,10 @@ def normalize_address(value: str) -> str:
         r"\bavenue\b": "ave",
         r"\bboulevard\b": "blvd",
         r"\bsuite\b": "ste",
+        r"\bsouth\b": "s",
+        r"\bnorth\b": "n",
+        r"\beast\b": "e",
+        r"\bwest\b": "w",
     }
     result = value.casefold().strip()
     for pattern, replacement in replacements.items():
@@ -58,6 +62,8 @@ STAGE_RULES: list[tuple[set[str], LifecycleStage, float]] = [
 
 def infer_stage(signals: list[Signal]) -> tuple[LifecycleStage, float, list[str]]:
     kinds = {s.signal_type for s in signals}
+    if "project_withdrawn" in kinds or "project_denied" in kinds:
+        return LifecycleStage.CANCELLED, 0.95, ["project withdrawal or denial evidence"]
     if "closure" in kinds:
         return LifecycleStage.CLOSED, 0.95, ["closure evidence"]
     if "relocation" in kinds:
@@ -102,7 +108,8 @@ def score_opportunity(
     now = now or datetime.utcnow()
     evidence = max(EVIDENCE.get(s.signal_type, 30) * s.confidence for s in signals)
     locations = physical_confidence * 100
-    days = max(0, (now.date() - max(s.detected_at.date() for s in signals)).days)
+    latest_evidence_date = max((s.signal_date or s.detected_at.date()) for s in signals)
+    days = max(0, (now.date() - latest_evidence_date).days)
     recency = max(0, 100 - days / 1.8)
     corroboration = min(100, len({s.source_id for s in signals}) * 35)
     score = (

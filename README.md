@@ -11,13 +11,21 @@ Sources → Raw Documents → Raw Records → Signals → Organizations/Location
 
 ## Current state
 
-This repository is an early Phase 0 validation engine. It includes the PostgreSQL schema, migrations, source-adapter framework, local artifact storage, three official municipal agenda collectors, rules engines, an internal API/dashboard, review and validation models, tests, and CI. Automated record-to-signal extraction currently covers conservative commercial applications in Manchester agendas. Generated candidates are explicitly queued for review and are not described as verified opportunities.
+This repository is a Phase 0.5 validation engine. It includes the PostgreSQL schema, migrations,
+source-adapter framework, local artifact storage, seven official municipal sources, rules engines,
+an internal API/dashboard, review and validation workflows, CSV export, tests, and CI. The bounded
+live corpus contains 45 manually reviewed candidates; see the validation report before interpreting
+the results.
 
 Current connected discovery pages:
 
 - Nashua Planning Board historical archive (official; pre-February 2025)
 - Manchester Planning Board agendas (official)
+- Manchester Zoning Board agendas (official)
 - Salem Planning Board Agenda Center (official)
+- Bedford Planning Board Agenda Center (official)
+- Portsmouth Planning Board materials (official)
+- Dover Down to Business archive (official; enrichment)
 
 See [the source map](docs/nh-source-map.md) for researched sources and precise implementation status.
 
@@ -43,6 +51,9 @@ uv run opportunity-intel collect "Manchester Planning Board Agendas" --limit 20
 uv run opportunity-intel collect-all --limit 20
 uv run opportunity-intel process
 uv run opportunity-intel validate
+uv run opportunity-intel import-reviews data/review-decisions-phase05.csv
+uv run opportunity-intel export-validation --path data/exports/phase05-reviewed.csv
+uv run opportunity-intel vendor-simulation
 ```
 
 These commands are cron-compatible. Collectors use timeouts, a descriptive user agent, bounded retry/backoff, a delay between documents, content hashes, idempotent constraints, local raw artifact retention, and isolated collection runs.
@@ -64,9 +75,9 @@ Read endpoints include `/health`, `/sources`, `/sources/health`, `/organizations
 
 ## Known limitations
 
-- Only three source discovery adapters are connected; Nashua's collector is an archive, not its current AMM portal.
-- Agenda PDF text extraction is deterministic; applicant/address extraction currently supports only Manchester's observed agenda format.
-- No opportunity is marked manually verified yet. Candidate counts must not be presented as actionable conversion.
+- The seven sources have uneven historical windows; Nashua's collector is an archive, not its current AMM portal.
+- PDF text extraction and source-specific rules do not handle scanned documents without OCR.
+- The 45-candidate review set is bounded and is not a statewide weekly-volume estimate.
 - No geocoder is included; radius matching needs defensible coordinates before use.
 - State registries and license lookups require further terms/API assessment; no browser automation or CAPTCHA circumvention is used.
 - The initial migration uses SQLAlchemy metadata to keep the prototype schema concise. Later migrations should use explicit Alembic operations.

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 import typer
 from sqlalchemy import select
@@ -7,9 +8,15 @@ from sqlalchemy import select
 from .collectors import collect_source
 from .db import SessionLocal
 from .models import Source
-from .processing import process_manchester
+from .processing import process_manchester, process_phase_05
 from .registry import seed_sources
-from .services import validation_summary
+from .reporting import (
+    detailed_validation_report,
+    export_validation_csv,
+    import_review_csv,
+    review_opportunity,
+    vendor_simulation,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -53,10 +60,38 @@ def collect_all(limit: int = 20) -> None:
 @app.command("validate")
 def validate() -> None:
     with SessionLocal() as db:
-        typer.echo(json.dumps(validation_summary(db), indent=2, default=str))
+        typer.echo(json.dumps(detailed_validation_report(db), indent=2, default=str))
 
 
 @app.command("process")
 def process() -> None:
     with SessionLocal() as db:
-        typer.echo(json.dumps(process_manchester(db), indent=2))
+        results = {"manchester_planning": process_manchester(db), **process_phase_05(db)}
+        typer.echo(json.dumps(results, indent=2))
+
+
+@app.command("review")
+def review(opportunity_id: str, verdict: str, note: str = "") -> None:
+    with SessionLocal() as db:
+        review_opportunity(db, opportunity_id, verdict, note)
+        typer.echo(f"Reviewed {opportunity_id}: {verdict}")
+
+
+@app.command("import-reviews")
+def import_reviews(path: Path) -> None:
+    with SessionLocal() as db:
+        count = import_review_csv(db, path)
+        typer.echo(f"Imported {count} review decisions")
+
+
+@app.command("export-validation")
+def export_validation(path: Path = Path("data/exports/validation.csv")) -> None:
+    with SessionLocal() as db:
+        count = export_validation_csv(db, path)
+        typer.echo(f"Exported {count} opportunities to {path}")
+
+
+@app.command("vendor-simulation")
+def simulate_vendors() -> None:
+    with SessionLocal() as db:
+        typer.echo(json.dumps(vendor_simulation(db), indent=2))

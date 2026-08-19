@@ -1,31 +1,36 @@
 # New Hampshire source feasibility map
 
-Research checked 2026-08-19. “Implemented” means a collector was run or is test-covered in this repository; it does not imply normalized opportunities were produced. Unknown rate limits are handled conservatively with sequential requests, delay, timeouts, and content hashing.
+Last tested 2026-08-19. “Working” means a live request succeeded during this validation run;
+“implemented” means a collector exists here. Requests are sequential, delayed, bounded, and
+hash-deduplicated. No authentication barriers were bypassed.
 
-| Municipality | Source | URL | Data | Format / history / cadence | Automatable / auth | Implemented | Notes |
-|---|---|---|---|---|---|---|---|
-| Nashua | Planning Board archive | https://www.nashuanh.gov/AgendaCenter/Planning-Board-23 | Agendas/minutes | HTML index + files; 2011–Feb 2025; meeting cadence | Likely yes / none | Yes, discovery/archive | Official page says current records moved to AMM; current portal adapter is still needed. |
-| Nashua | Agenda Center RSS | https://nashuanh.gov/Rss.aspx | Agenda updates | RSS; historical archive categories | Likely yes / none | No | Candidate incremental feed; category URL must be verified. |
-| Manchester | Planning Board agendas | https://www.manchesternh.gov/Departments/Planning-and-Comm-Dev/Planning-Board/Agendas | Agendas | HTML index + PDF; multiple years; ~biweekly | Yes / none | Yes | High-value site-plan evidence. Revised editions dedupe by content hash while retaining distinct provenance. |
-| Manchester | Zoning Board agendas | https://www.manchesternh.gov/Departments/Planning-and-Comm-Dev/Zoning-Board/Agendas | Zoning agendas | HTML + PDF; multiple years; monthly | Likely yes / none | No | Same site pattern; add after planning parser stabilizes. |
-| Salem | Planning Board Agenda Center | https://www.salemnh.gov/AgendaCenter | Agenda/material packets/minutes | CivicEngage HTML/PDF; 2016+; twice monthly | Likely yes / none | Yes, discovery | Broad index can contain other boards; collector needs category scoping refinement before production volume. |
-| Concord | Planning Board / Legistar | https://www.concordnh.gov/273/Planning-Board | Agendas/minutes | Legistar-linked structured calendar; Feb 2017+; monthly | Likely yes / none | No | A Legistar adapter is preferable to scraping the city landing page. |
-| Dover | Public Meeting Records | https://publicrecords.dover.nh.gov/public/1/deptnum/0/cab/Public_Meetings?autosearch=Planning+Board&index=public_body | Agendas, minutes, materials | Treeno Cabinet HTML/documents; historical; twice monthly | Needs technical/terms review / none visible | No | Public search is useful; adapter and stable document URLs need assessment. |
-| Dover | Down to Business | https://www.dover.nh.gov/government/city-operations/executive/business-development/down-to-business/ | Economic-development newsletter | HTML archive; weekly | Likely yes / none | No | Promising enrichment and opening announcements, not primary proof by itself. |
-| Portsmouth | Planning Board events | https://www.portsmouthnh.gov/planportsmouth/events | Agendas, packets, plans, decisions | HTML event pages + attachments; historical; meeting cadence | Likely yes / none | No | Rich project-level documents; event discovery/pagination needs a dedicated adapter. |
-| Bedford | Agendas & Minutes | https://www.bedfordnh.org/129/Agendas-Minutes | Planning agendas/minutes | CivicEngage/files; multi-year; roughly twice monthly | Likely yes / none | No | Page coverage observed through 2025; confirm current 2026 location before enabling. |
-| Merrimack | Planning Board agendas | https://www.merrimacknh.gov/node/2261/agenda/2026 | Agendas and project attachments | Drupal HTML + files; annual archive; twice monthly | Likely yes / none | No | Project attachments appear valuable; Drupal-specific adapter needed. |
+| Municipality | Official source | Record type / history | Access | Implemented / working | Notes |
+|---|---|---|---|---|---|
+| Nashua | [Planning Board archive](https://www.nashuanh.gov/AgendaCenter/Planning-Board-23) | Agendas/minutes, HTML/PDF; 2011–Feb 2025 | Feasible, no auth | Yes / yes | Current records moved; collected archive is stale by design. |
+| Manchester | [Planning Board agendas](https://www.manchesternh.gov/Departments/Planning-and-Comm-Dev/Planning-Board/Agendas) | Agendas, HTML/PDF; multi-year, ~twice monthly | Feasible, no auth | Yes / yes | High-value commercial site-plan evidence. |
+| Manchester | [Zoning Board agendas](https://www.manchesternh.gov/Departments/Planning-and-Comm-Dev/Zoning-Board/Agendas) | Zoning/sign cases, HTML/PDF; monthly | Feasible, no auth | Yes / yes | Corroborates planning addresses. |
+| Salem | [Agenda Center](https://www.salemnh.gov/AgendaCenter) | Planning packets, CivicEngage/PDF; 2016+ | Feasible, no auth | Yes / yes | Scoped to Planning Board. |
+| Bedford | [Agendas & Minutes](https://www.bedfordnh.org/129/Agendas-Minutes) | Planning agendas, CivicEngage/PDF; multi-year | Feasible, no auth | Yes / yes | Strong commercial descriptions. |
+| Portsmouth | [Planning Board](https://www.portsmouthnh.gov/planportsmouth/planning-board) | Agendas/memos/actions, HTML/PDF; historical | Feasible, no auth | Yes / yes | Keeps primary documents to limit plan-set noise. |
+| Dover | [Down to Business](https://www.dover.nh.gov/government/city-operations/executive/business-development/down-to-business/) | Business announcements, HTML; weekly archive | Feasible but throttled | Yes / degraded | Ten documents persisted before HTTP 429; retry/backoff added. Often too late for pre-opening sales. |
+| Concord | [Planning Board](https://www.concordnh.gov/273/Planning-Board) | Legistar agendas/minutes; 2017+ monthly | Likely feasible, no auth | No / unverified | Prefer a Legistar adapter. |
+| Dover | [Public Meeting Records](https://publicrecords.dover.nh.gov/public/1/deptnum/0/cab/Public_Meetings?autosearch=Planning+Board&index=public_body) | Agendas/minutes/files; historical | Needs stable-URL/terms review | No / unverified | Treeno Cabinet needs an adapter. |
+| Merrimack | [Planning Board agendas](https://www.merrimacknh.gov/node/2261/agenda/2026) | Agendas/attachments, Drupal; annual archive | Automated client blocked | No / no (403) | Do not bypass; seek approved access. |
 
 ## Statewide and complementary sources
 
-| Jurisdiction | Source | URL | Data | Format / history / cadence | Automatable / auth | Implemented | Notes |
-|---|---|---|---|---|---|---|---|
-| New Hampshire | Secretary of State QuickStart | https://quickstart.sos.nh.gov/online/BusinessInquire | Business registrations/trade names | Interactive search | Bulk/API availability unverified | No | Registration alone is weak evidence. Do not automate until terms and a legitimate bulk/API route are confirmed. |
-| New Hampshire | OPLC license lookup | https://www.oplc.nh.gov/license-lookup | Professional licenses | Interactive lookup | Bulk/API availability unverified | No | Limit to commercial entity/location evidence; avoid personal profiling. |
-| New Hampshire | DRA tax licenses overview | https://www.revenue.nh.gov/licenses-certifications/tax-licenses-permits | Meals/rooms and other license context | Information page | No public dataset identified | No | Confirms licenses are pre-operation signals, but the page is not a record feed. |
-| New Hampshire | DHHS Food Protection | https://www.dhhs.nh.gov/programs-services/environmental-health-and-you/food-protection | Food service licensing | Pages/forms | Dataset availability unverified | No | Investigate establishment lists without collecting personal data. |
-| New Hampshire | Liquor Commission licensing | https://www.liquorandwineoutlets.com/about-us/divisions/enforcement-licensing | Liquor license information | Pages/lookup availability unclear | Needs terms/data assessment | No | High-value pre-opening signal if a public application/license feed is available. |
+| Official source | Potential signal | Access assessment | Status / limitation |
+|---|---|---|---|
+| [Secretary of State QuickStart](https://quickstart.sos.nh.gov/online/BusinessInquire) | Business/trade-name registration | Interactive; bulk/API route unverified | Not implemented. Registration is weak without a location. |
+| [OPLC license lookup](https://www.oplc.nh.gov/license-lookup) | Professional license status | Interactive; bulk/API route unverified | Not implemented. Avoid personal profiling. |
+| [DRA tax licenses](https://www.revenue.nh.gov/licenses-certifications/tax-licenses-permits) | Meals/rooms and tax-license context | Information page, not a feed | Not implemented. |
+| [DHHS Food Protection](https://www.dhhs.nh.gov/programs-services/environmental-health-and-you/food-protection) | Food-service licensing | Public dataset not identified | Investigate an approved establishment feed. |
+| [Liquor Commission licensing](https://www.liquorandwineoutlets.com/about-us/divisions/enforcement-licensing) | Liquor application/license | Public application feed not identified | Investigate agency records, not lookup scraping. |
 
-## Sources not yet treated as durable pipelines
+## Expansion priorities
 
-Company pages, shopping-center announcements, franchise releases, company career pages, and reputable local news are valid corroborating sources, but each requires source-specific discovery and terms review. Search results are research aids, not an ingestion pipeline. Job boards that prohibit automated collection will not be scraped.
+1. Add current building-permit feeds for Manchester/Nashua or another high-volume municipality.
+2. Add Concord Legistar and Dover public-meeting adapters.
+3. Obtain an approved statewide food or liquor establishment feed.
+4. Use company announcements, careers pages, and local news only as corroboration after terms
+   review. Search results are research aids, not ingestion.

@@ -25,6 +25,34 @@ SOURCES = [
         "base_url": "https://www.salemnh.gov/AgendaCenter",
         "collector_name": "civic_engage_agenda",
     },
+    {
+        "name": "Manchester Zoning Board Agendas",
+        "source_type": "zoning_board",
+        "jurisdiction": "Manchester, NH",
+        "base_url": "https://www.manchesternh.gov/Departments/Planning-and-Comm-Dev/Zoning-Board/Agendas",
+        "collector_name": "manchester_planning",
+    },
+    {
+        "name": "Bedford Planning Board Agenda Center",
+        "source_type": "planning_board",
+        "jurisdiction": "Bedford, NH",
+        "base_url": "https://www.bedfordnh.org/129/Agendas-Minutes",
+        "collector_name": "civic_engage_agenda",
+    },
+    {
+        "name": "Portsmouth Planning Board Materials",
+        "source_type": "planning_board",
+        "jurisdiction": "Portsmouth, NH",
+        "base_url": "https://www.portsmouthnh.gov/planportsmouth/planning-board/planning-board-archived-meetings-and-material",
+        "collector_name": "portsmouth_planning",
+    },
+    {
+        "name": "Dover Down to Business",
+        "source_type": "municipal_news",
+        "jurisdiction": "Dover, NH",
+        "base_url": "https://www.dover.nh.gov/government/city-operations/executive/business-development/down-to-business/",
+        "collector_name": "dover_business_news",
+    },
 ]
 
 

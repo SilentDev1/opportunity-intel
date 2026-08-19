@@ -28,7 +28,7 @@ def signal(kind, source="a", days=0, confidence=0.9):
 def test_normalization():
     assert normalize_name("The ACME, LLC") == "the acme"
     assert normalize_name("A & B Inc.") == "a and b"
-    assert normalize_address("125 South Broadway Street, Suite 2") == "125 south broadway st ste 2"
+    assert normalize_address("125 South Broadway Street, Suite 2") == "125 s broadway st ste 2"
 
 
 def test_stage_uses_strongest_signal_and_corroboration():

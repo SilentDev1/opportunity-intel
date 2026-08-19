@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urljoin
 
 import httpx
@@ -38,7 +39,14 @@ class SourceCollector(abc.ABC):
     async def fetch(self, client: httpx.AsyncClient, item: DiscoveredDocument) -> httpx.Response:
         for attempt in range(3):
             try:
-                return await client.get(item.url)
+                response = await client.get(item.url)
+                if response.status_code != 429 and response.status_code < 500:
+                    return response
+                if attempt == 2:
+                    return response
+                retry_after = response.headers.get("retry-after")
+                delay = min(float(retry_after), 10.0) if retry_after else 2**attempt
+                await asyncio.sleep(delay)
             except (httpx.TimeoutException, httpx.TransportError):
                 if attempt == 2:
                     raise
@@ -71,7 +79,7 @@ class CivicEngageAgendaCollector(SourceCollector):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         links: list[Tag] = list(soup.select("a[href]"))
-        if self.source.jurisdiction == "Salem, NH":
+        if self.source.jurisdiction in {"Salem, NH", "Bedford, NH"}:
             heading = soup.find(
                 lambda tag: (
                     tag.name in {"h2", "h3"} and tag.get_text(" ", strip=True) == "Planning Board"
@@ -115,9 +123,41 @@ class ManchesterPlanningCollector(SourceCollector):
         return result
 
 
+class DoverBusinessNewsCollector(SourceCollector):
+    async def discover(self, client: httpx.AsyncClient) -> list[DiscoveredDocument]:
+        response = await client.get(self.source.base_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        found: dict[str, DiscoveredDocument] = {}
+        for link in soup.select("a[href]"):
+            title = " ".join(link.get_text(" ", strip=True).split())
+            if title.casefold().startswith("down to business,"):
+                url = urljoin(self.source.base_url, str(link.get("href")))
+                found[url] = DiscoveredDocument(url, title)
+        return list(found.values())
+
+
+class PortsmouthPlanningCollector(SourceCollector):
+    async def discover(self, client: httpx.AsyncClient) -> list[DiscoveredDocument]:
+        response = await client.get(self.source.base_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        wanted = {"agenda", "revised agenda", "staff memo", "action sheet", "legal notice"}
+        found: dict[str, DiscoveredDocument] = {}
+        for link in soup.select("a[href]"):
+            title = " ".join(link.get_text(" ", strip=True).split())
+            href = str(link.get("href"))
+            if title.casefold() in wanted and ".pdf" in href.casefold():
+                url = urljoin(self.source.base_url, href)
+                found[url] = DiscoveredDocument(url, title)
+        return list(found.values())
+
+
 COLLECTORS = {
     "civic_engage_agenda": CivicEngageAgendaCollector,
     "manchester_planning": ManchesterPlanningCollector,
+    "dover_business_news": DoverBusinessNewsCollector,
+    "portsmouth_planning": PortsmouthPlanningCollector,
 }
 
 
@@ -127,7 +167,8 @@ async def collect_source(db: Session, source: Source, limit: int = 20) -> Collec
     db.add(run)
     source.last_attempt_at = datetime.utcnow()
     db.commit()
-    collector = COLLECTORS[source.collector_name](source)
+    collector_type: Any = COLLECTORS[source.collector_name]
+    collector: SourceCollector = collector_type(source)
     storage = LocalArtifactStorage(settings.artifact_root)
     try:
         async with httpx.AsyncClient(
@@ -192,7 +233,7 @@ async def collect_source(db: Session, source: Source, limit: int = 20) -> Collec
         source.failure_count = 0
     except Exception as exc:
         log.exception("collector_failed", extra={"run_id": run.id, "source": source.name})
-        run.status = "failed"
+        run.status = "degraded" if run.documents_new else "failed"
         run.error = str(exc)[:2000]
         source.last_error = run.error
         source.failure_count += 1
