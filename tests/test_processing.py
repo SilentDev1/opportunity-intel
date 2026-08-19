@@ -23,3 +23,18 @@ def test_false_positive_regressions_keep_mixed_use_commercial():
     assert not is_commercial_candidate("Four standalone residential condominiums in office zone")
     assert not is_commercial_candidate("Three single-family dwellings for Regan Electric")
     assert is_commercial_candidate("Mixed-use redevelopment with new commercial space")
+
+
+def test_manchester_parser_does_not_bleed_across_pdsp_boundary():
+    text = """MANCHESTER PLANNING BOARD
+Thursday, May 7, 2026 – 6:00 PM
+1. CU2026-002 Property located at 57 Bay Street (Tax Map 15, Lot 12), a conversion of
+commercial space into a new cafe. Engineer for Skiff Legacy Properties, LLC.
+2. PDSP2025-009 Property located at 2035 Brown Avenue (Tax Map 688, Lot 122), a new
+gas station and convenience store. TF Moran, Inc. for 4KV, LLC.
+III. BUSINESS MEETING:"""
+    projects = extract_manchester_projects(text)
+    assert [(item["project_id"], item["applicant"], item["address"]) for item in projects] == [
+        ("CU2026-002", "Skiff Legacy Properties, LLC", "57 Bay Street"),
+        ("PDSP2025-009", "4KV, LLC", "2035 Brown Avenue"),
+    ]

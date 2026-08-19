@@ -20,6 +20,8 @@ def upgrade() -> None:
         "business_contacts",
         "opportunity_enrichments",
         "vendor_feedback",
+        "blind_validation_batches",
+        "blind_validation_results",
     }
     Base.metadata.create_all(
         bind=op.get_bind(),

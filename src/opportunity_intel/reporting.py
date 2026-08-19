@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from .enrichment import independent_signal_families
@@ -17,9 +17,12 @@ from .models import (
     OpportunityEnrichment,
     OpportunityOrganizationRole,
     Organization,
+    RawRecord,
+    RawSourceDocument,
     ReviewItem,
     Signal,
     Source,
+    StageHistory,
 )
 from .services import match_profile, validation_summary
 
@@ -388,6 +391,110 @@ def independent_signal_metrics(db: Session) -> dict[str, Any]:
     return result
 
 
+def source_value_metrics(db: Session) -> list[dict[str, Any]]:
+    """Attribute downstream value to each contributing source without double counting leads."""
+    reviews = latest_reviews(db)
+    rows: list[dict[str, Any]] = []
+    for source in db.scalars(select(Source).order_by(Source.name)):
+        record_count = (
+            db.scalar(
+                select(func.count(RawRecord.id))
+                .join(
+                    RawSourceDocument,
+                    RawRecord.raw_source_document_id == RawSourceDocument.id,
+                )
+                .where(RawSourceDocument.source_id == source.id)
+            )
+            or 0
+        )
+        signals = list(db.scalars(select(Signal).where(Signal.source_id == source.id)))
+        keys = {(item.organization_id, item.location_id) for item in signals}
+        opportunity_ids = (
+            set(
+                db.scalars(
+                    select(Opportunity.id).where(
+                        tuple_(Opportunity.organization_id, Opportunity.location_id).in_(keys)
+                    )
+                )
+            )
+            if keys
+            else set()
+        )
+        actionable_ids = {
+            item_id
+            for item_id in opportunity_ids
+            if reviews.get(item_id) and reviews[item_id].verdict == "actionable"
+        }
+        vendor_ready = sum(
+            1
+            for item_id in actionable_ids
+            if (enrichment := db.get(OpportunityEnrichment, item_id))
+            and enrichment.vendor_readiness_tier in {"A", "B"}
+        )
+        operator_resolved = sum(
+            1
+            for item_id in actionable_ids
+            if (enrichment := db.get(OpportunityEnrichment, item_id))
+            and enrichment.operator_confidence in {"CONFIRMED", "HIGH", "MEDIUM"}
+        )
+        stage_transitions = (
+            db.scalar(
+                select(func.count(StageHistory.id)).where(
+                    StageHistory.triggering_signal_id.in_([item.id for item in signals])
+                )
+            )
+            if signals
+            else 0
+        ) or 0
+        contacts_discovered = (
+            db.scalar(
+                select(func.count(BusinessContact.id)).where(
+                    BusinessContact.source_name == source.name
+                )
+            )
+            or 0
+        )
+        corroborations = sum(
+            1
+            for item_id in opportunity_ids
+            if len(
+                independent_signal_families(
+                    list(
+                        db.scalars(
+                            select(Signal)
+                            .join(
+                                Opportunity,
+                                (Signal.organization_id == Opportunity.organization_id)
+                                & (Signal.location_id == Opportunity.location_id),
+                            )
+                            .where(Opportunity.id == item_id)
+                        )
+                    )
+                )
+            )
+            >= 2
+        )
+        rows.append(
+            {
+                "source": source.name,
+                "records": record_count,
+                "signals": len(signals),
+                "candidate_opportunities": len(opportunity_ids),
+                "actionable_opportunities": len(actionable_ids),
+                "operators_resolved": operator_resolved,
+                "contacts_discovered": contacts_discovered,
+                "corroborations_added": corroborations,
+                "stage_transitions": stage_transitions,
+                "vendor_ready_leads": vendor_ready,
+                "value_score": vendor_ready * 5
+                + operator_resolved * 3
+                + len(actionable_ids) * 2
+                + contacts_discovered,
+            }
+        )
+    return sorted(rows, key=lambda item: (-item["value_score"], item["source"]))
+
+
 def weekly_cohort(db: Session, period_start: date, period_end: date) -> dict[str, Any]:
     start = datetime.combine(period_start, datetime.min.time())
     end = datetime.combine(period_end + timedelta(days=1), datetime.min.time())
@@ -428,6 +535,7 @@ def export_validation_csv(db: Session, path: Path) -> int:
         "brand",
         "operating_brand",
         "operator_status",
+        "operator_confidence",
         "city",
         "address",
         "industry",
@@ -435,8 +543,11 @@ def export_validation_csv(db: Session, path: Path) -> int:
         "opportunity_type",
         "score",
         "vendor_readiness_score",
+        "vendor_readiness_tier",
         "independent_signal_count",
         "contactability_status",
+        "contact_utility_class",
+        "contact_utility_score",
         "official_website",
         "business_phone",
         "business_email",
@@ -446,6 +557,8 @@ def export_validation_csv(db: Session, path: Path) -> int:
         "signal_count",
         "first_detected_at",
         "first_actionable_at",
+        "first_operator_identified_at",
+        "first_contactable_at",
         "last_signal_at",
         "estimated_open_window",
         "review_status",
@@ -508,6 +621,9 @@ def export_validation_csv(db: Session, path: Path) -> int:
                     "brand": org.dba_name or org.canonical_name,
                     "operating_brand": operator_org.dba_name or operator_org.canonical_name,
                     "operator_status": enrichment.operator_status if enrichment else "UNKNOWN",
+                    "operator_confidence": enrichment.operator_confidence
+                    if enrichment
+                    else "UNKNOWN",
                     "city": location.city,
                     "address": location.address_line_1,
                     "industry": org.industry,
@@ -517,10 +633,17 @@ def export_validation_csv(db: Session, path: Path) -> int:
                     "vendor_readiness_score": enrichment.vendor_readiness_score
                     if enrichment
                     else 0,
+                    "vendor_readiness_tier": enrichment.vendor_readiness_tier
+                    if enrichment
+                    else "NOT_READY",
                     "independent_signal_count": len(independent_signal_families(signals)),
                     "contactability_status": enrichment.contactability_status
                     if enrichment
                     else "NOT_CONTACTABLE",
+                    "contact_utility_class": enrichment.contact_utility_class
+                    if enrichment
+                    else "UNKNOWN",
+                    "contact_utility_score": enrichment.contact_utility_score if enrichment else 0,
                     "official_website": by_type.get("website", ""),
                     "business_phone": by_type.get("phone", ""),
                     "business_email": by_type.get("email", ""),
@@ -530,6 +653,10 @@ def export_validation_csv(db: Session, path: Path) -> int:
                     "signal_count": len(signals),
                     "first_detected_at": opportunity.first_detected_at,
                     "first_actionable_at": opportunity.first_actionable_at,
+                    "first_operator_identified_at": enrichment.first_operator_identified_at
+                    if enrichment
+                    else None,
+                    "first_contactable_at": enrichment.first_contactable_at if enrichment else None,
                     "last_signal_at": opportunity.last_signal_at,
                     "estimated_open_window": " to ".join(
                         str(value)
@@ -732,6 +859,7 @@ def export_vendor_ready(db: Session, vendor_name: str, path: Path) -> int:
         "opportunity_score",
         "vendor_readiness_score",
         "vendor_readiness_band",
+        "vendor_readiness_tier",
         "independent_signal_count",
         "contactability_status",
         "official_website",
@@ -742,6 +870,12 @@ def export_vendor_ready(db: Session, vendor_name: str, path: Path) -> int:
         "relevant_services",
         "source_links",
         "last_updated",
+        "what_is_happening",
+        "current_stage",
+        "why_you_are_seeing_this_now",
+        "why_it_may_be_relevant",
+        "verified_contact_route",
+        "evidence",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = 0
@@ -758,8 +892,7 @@ def export_vendor_ready(db: Session, vendor_name: str, path: Path) -> int:
             if (
                 not review
                 or review.verdict != "actionable"
-                or enrichment.vendor_readiness_score < 50
-                or enrichment.contactability_status not in {"CONTACTABLE", "PARTIALLY_CONTACTABLE"}
+                or enrichment.vendor_readiness_tier not in {"A", "B"}
             ):
                 continue
             needs = list(
@@ -824,6 +957,7 @@ def export_vendor_ready(db: Session, vendor_name: str, path: Path) -> int:
                     "opportunity_score": opportunity.score,
                     "vendor_readiness_score": enrichment.vendor_readiness_score,
                     "vendor_readiness_band": enrichment.vendor_readiness_band,
+                    "vendor_readiness_tier": enrichment.vendor_readiness_tier,
                     "independent_signal_count": len(independent_signal_families(signals)),
                     "contactability_status": enrichment.contactability_status,
                     "official_website": by_type.get("website", ""),
@@ -839,6 +973,19 @@ def export_vendor_ready(db: Session, vendor_name: str, path: Path) -> int:
                         )
                     ),
                     "last_updated": enrichment.updated_at,
+                    "what_is_happening": opportunity.summary,
+                    "current_stage": opportunity.stage,
+                    "why_you_are_seeing_this_now": why_now,
+                    "why_it_may_be_relevant": "; ".join(match["why_it_matches"]),
+                    "verified_contact_route": next(
+                        (
+                            by_type[key]
+                            for key in ("phone", "email", "contact_page", "website")
+                            if by_type.get(key)
+                        ),
+                        "",
+                    ),
+                    "evidence": review.notes,
                 }
             )
             rows += 1

@@ -172,6 +172,9 @@ class BusinessContact(Base, TimestampMixin):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(30), default="active")
+    utility_class: Mapped[str] = mapped_column(String(40), default="UNKNOWN", index=True)
+    utility_score: Mapped[int] = mapped_column(Integer, default=0)
+    relationship_to_opportunity: Mapped[str] = mapped_column(Text, default="Unspecified")
 
 
 class Location(Base, TimestampMixin):
@@ -299,13 +302,20 @@ class OpportunityEnrichment(Base, TimestampMixin):
     __tablename__ = "opportunity_enrichments"
     opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), primary_key=True)
     operator_status: Mapped[str] = mapped_column(String(40), default="UNKNOWN", index=True)
+    operator_confidence: Mapped[str] = mapped_column(String(20), default="UNKNOWN", index=True)
+    operator_resolution_reason: Mapped[str] = mapped_column(Text, default="No operator resolved.")
+    first_operator_identified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     chain_classification: Mapped[str] = mapped_column(String(40), default="UNKNOWN", index=True)
     contactability_status: Mapped[str] = mapped_column(
         String(40), default="NOT_CONTACTABLE", index=True
     )
     contactability_reason: Mapped[str] = mapped_column(Text, default="No verified route stored.")
+    contact_utility_class: Mapped[str] = mapped_column(String(40), default="UNKNOWN", index=True)
+    contact_utility_score: Mapped[int] = mapped_column(Integer, default=0)
+    first_contactable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     vendor_readiness_score: Mapped[float] = mapped_column(Float, default=0, index=True)
     vendor_readiness_band: Mapped[str] = mapped_column(String(20), default="LOW", index=True)
+    vendor_readiness_tier: Mapped[str] = mapped_column(String(20), default="NOT_READY", index=True)
     vendor_readiness_breakdown: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
@@ -324,6 +334,32 @@ class VendorFeedback(Base):
     comment: Mapped[str | None] = mapped_column(Text)
     outcome_status: Mapped[str] = mapped_column(String(40), default="NOT_REVIEWED", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BlindValidationBatch(Base):
+    __tablename__ = "blind_validation_batches"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    name: Mapped[str] = mapped_column(String(160), unique=True)
+    source_scope: Mapped[str] = mapped_column(Text)
+    frozen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class BlindValidationResult(Base):
+    __tablename__ = "blind_validation_results"
+    __table_args__ = (UniqueConstraint("batch_id", "opportunity_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("blind_validation_batches.id"), index=True)
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), index=True)
+    machine_status: Mapped[str] = mapped_column(String(40))
+    machine_stage: Mapped[str] = mapped_column(String(40))
+    machine_score: Mapped[float] = mapped_column(Float)
+    machine_operator_status: Mapped[str] = mapped_column(String(40))
+    machine_contactability_status: Mapped[str] = mapped_column(String(40))
+    machine_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    manual_verdict: Mapped[str | None] = mapped_column(String(40))
+    manual_notes: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class StageHistory(Base):

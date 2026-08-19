@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import (
+    BlindValidationBatch,
+    BlindValidationResult,
     BusinessContact,
     ManualReview,
     Opportunity,
@@ -62,6 +64,16 @@ VENDOR_OUTCOMES = {
     "NO_RESPONSE",
     "BAD_LEAD",
 }
+CONTACT_UTILITY = {
+    "LOCAL_DIRECT": 100,
+    "FRANCHISE_OPERATOR": 85,
+    "BUSINESS_GENERAL": 75,
+    "CORPORATE": 60,
+    "DEVELOPER": 40,
+    "PROPERTY_MANAGER": 35,
+    "UNKNOWN": 0,
+}
+OPERATOR_CONFIDENCES = {"CONFIRMED", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
 
 
 def normalize_phone(value: str) -> str:
@@ -188,6 +200,32 @@ def vendor_readiness(
     return score, band, breakdown
 
 
+def vendor_readiness_tier(
+    opportunity: Opportunity,
+    operator_confidence: str,
+    contact_status: str,
+    contact_utility_score: int,
+    independent_family_count: int,
+) -> str:
+    timely = opportunity.stage not in {"OPEN", "CLOSED", "STALE", "CANCELLED"}
+    if (
+        operator_confidence in {"CONFIRMED", "HIGH"}
+        and contact_status == "CONTACTABLE"
+        and contact_utility_score >= 75
+        and independent_family_count >= 2
+        and timely
+    ):
+        return "A"
+    if (
+        operator_confidence in {"CONFIRMED", "HIGH", "MEDIUM"}
+        and contact_status == "CONTACTABLE"
+        and contact_utility_score >= 60
+        and timely
+    ):
+        return "B"
+    return "C" if opportunity.status == "actionable" else "NOT_READY"
+
+
 def upsert_contact(
     db: Session,
     *,
@@ -204,9 +242,13 @@ def upsert_contact(
     confidence: float,
     match_reason: str,
     observed_at: datetime,
+    utility_class: str = "UNKNOWN",
+    relationship_to_opportunity: str = "Unspecified",
 ) -> tuple[BusinessContact, bool]:
     normalized = normalize_contact(contact_type, value)
     normalized_source = normalize_url(source_url)
+    if utility_class not in CONTACT_UTILITY:
+        raise ValueError(f"Unknown contact utility class: {utility_class}")
     if contact_type in {"website", "contact_page", "careers_page"} and not official_website_match(
         is_official, confidence, match_reason
     ):
@@ -224,6 +266,9 @@ def upsert_contact(
         existing.verified_at = observed_at
         existing.confidence = confidence
         existing.status = "active"
+        existing.utility_class = utility_class
+        existing.utility_score = CONTACT_UTILITY[utility_class]
+        existing.relationship_to_opportunity = relationship_to_opportunity
         return existing, False
     contact = BusinessContact(
         organization_id=organization_id,
@@ -242,6 +287,9 @@ def upsert_contact(
         verified_at=observed_at,
         first_seen_at=observed_at,
         last_seen_at=observed_at,
+        utility_class=utility_class,
+        utility_score=CONTACT_UTILITY[utility_class],
+        relationship_to_opportunity=relationship_to_opportunity,
     )
     db.add(contact)
     return contact, True
@@ -252,6 +300,8 @@ def refresh_enrichment(
     opportunity: Opportunity,
     operator_status: str | None = None,
     chain_classification: str | None = None,
+    operator_confidence: str | None = None,
+    operator_resolution_reason: str | None = None,
 ) -> OpportunityEnrichment:
     enrichment = db.get(OpportunityEnrichment, opportunity.id) or OpportunityEnrichment(
         opportunity_id=opportunity.id
@@ -260,12 +310,22 @@ def refresh_enrichment(
         enrichment.operator_status = operator_status
     if chain_classification:
         enrichment.chain_classification = chain_classification
+    if operator_confidence:
+        if operator_confidence not in OPERATOR_CONFIDENCES:
+            raise ValueError(f"Unknown operator confidence: {operator_confidence}")
+        enrichment.operator_confidence = operator_confidence
+    if operator_resolution_reason:
+        enrichment.operator_resolution_reason = operator_resolution_reason
+    if enrichment.operator_status == "KNOWN" and enrichment.first_operator_identified_at is None:
+        enrichment.first_operator_identified_at = datetime.utcnow()
     related_org_ids = {opportunity.organization_id}
     related_org_ids.update(
         db.scalars(
             select(OpportunityOrganizationRole.organization_id).where(
                 OpportunityOrganizationRole.opportunity_id == opportunity.id,
-                OpportunityOrganizationRole.role.in_(["operator", "tenant", "franchisee"]),
+                OpportunityOrganizationRole.role.in_(
+                    ["operator", "tenant", "franchisee", "developer", "property_manager", "broker"]
+                ),
             )
         )
     )
@@ -277,6 +337,14 @@ def refresh_enrichment(
     enrichment.contactability_status, enrichment.contactability_reason = contactability_status(
         contacts
     )
+    best_contact = max(contacts, key=lambda item: item.utility_score, default=None)
+    enrichment.contact_utility_class = best_contact.utility_class if best_contact else "UNKNOWN"
+    enrichment.contact_utility_score = best_contact.utility_score if best_contact else 0
+    if (
+        enrichment.contactability_status == "CONTACTABLE"
+        and enrichment.first_contactable_at is None
+    ):
+        enrichment.first_contactable_at = datetime.utcnow()
     signals = list(
         db.scalars(
             select(Signal).where(
@@ -294,6 +362,13 @@ def refresh_enrichment(
     enrichment.vendor_readiness_score = score
     enrichment.vendor_readiness_band = band
     enrichment.vendor_readiness_breakdown = breakdown
+    enrichment.vendor_readiness_tier = vendor_readiness_tier(
+        opportunity,
+        enrichment.operator_confidence,
+        enrichment.contactability_status,
+        enrichment.contact_utility_score,
+        len(independent_signal_families(signals)),
+    )
     db.add(enrichment)
     return enrichment
 
@@ -316,6 +391,64 @@ def blind_batch_metrics(db: Session, opportunity_ids: set[str]) -> dict[str, flo
         },
         "false_positive_rate": round(counts["false_positive"] / size * 100, 1) if size else 0.0,
     }
+
+
+def freeze_blind_batch(
+    db: Session, name: str, source_scope: str, opportunity_ids: set[str], notes: str = ""
+) -> BlindValidationBatch:
+    if db.scalar(select(BlindValidationBatch).where(BlindValidationBatch.name == name)):
+        raise ValueError(f"Blind batch already frozen: {name}")
+    batch = BlindValidationBatch(name=name, source_scope=source_scope, notes=notes)
+    db.add(batch)
+    db.flush()
+    for opportunity_id in sorted(opportunity_ids):
+        opportunity = db.get(Opportunity, opportunity_id)
+        if not opportunity:
+            raise ValueError(f"Unknown opportunity: {opportunity_id}")
+        enrichment = db.get(OpportunityEnrichment, opportunity_id)
+        db.add(
+            BlindValidationResult(
+                batch_id=batch.id,
+                opportunity_id=opportunity.id,
+                machine_status=opportunity.status,
+                machine_stage=opportunity.stage,
+                machine_score=opportunity.score,
+                machine_operator_status=enrichment.operator_status if enrichment else "UNKNOWN",
+                machine_contactability_status=enrichment.contactability_status
+                if enrichment
+                else "NOT_CONTACTABLE",
+                machine_payload={
+                    "summary": opportunity.summary,
+                    "why_actionable": opportunity.why_actionable,
+                    "score_breakdown": opportunity.score_breakdown,
+                },
+            )
+        )
+    db.commit()
+    return batch
+
+
+def record_blind_reviews(db: Session, batch_name: str) -> dict[str, int]:
+    batch = db.scalar(select(BlindValidationBatch).where(BlindValidationBatch.name == batch_name))
+    if not batch:
+        raise ValueError(f"Unknown blind batch: {batch_name}")
+    counts: Counter[str] = Counter()
+    for result in db.scalars(
+        select(BlindValidationResult).where(BlindValidationResult.batch_id == batch.id)
+    ):
+        review = db.scalar(
+            select(ManualReview)
+            .where(ManualReview.opportunity_id == result.opportunity_id)
+            .order_by(ManualReview.reviewed_at.desc())
+            .limit(1)
+        )
+        if review:
+            result.manual_verdict = review.verdict
+            result.manual_notes = review.notes
+            result.reviewed_at = review.reviewed_at
+            counts[review.verdict] += 1
+    db.commit()
+    return dict(counts)
 
 
 def import_enrichment_csv(db: Session, path: Path) -> dict[str, int]:
@@ -368,6 +501,45 @@ def import_enrichment_csv(db: Session, path: Path) -> dict[str, int]:
                     )
                     counts["roles"] += 1
                 target_org = operator
+            contact_org_name = row.get("contact_organization_name", "").strip()
+            if contact_org_name:
+                contact_org = db.scalar(
+                    select(Organization).where(
+                        Organization.normalized_name == contact_org_name.casefold()
+                    )
+                )
+                if not contact_org:
+                    contact_org = Organization(
+                        canonical_name=contact_org_name,
+                        normalized_name=contact_org_name.casefold(),
+                        organization_type=row.get("contact_organization_type") or None,
+                        industry=target_org.industry if target_org else None,
+                    )
+                    db.add(contact_org)
+                    db.flush()
+                    counts["organizations"] += 1
+                related_role = row.get("contact_organization_role", "").strip()
+                if related_role:
+                    role = db.scalar(
+                        select(OpportunityOrganizationRole).where(
+                            OpportunityOrganizationRole.opportunity_id == opportunity.id,
+                            OpportunityOrganizationRole.organization_id == contact_org.id,
+                            OpportunityOrganizationRole.role == related_role,
+                        )
+                    )
+                    if not role:
+                        db.add(
+                            OpportunityOrganizationRole(
+                                opportunity_id=opportunity.id,
+                                organization_id=contact_org.id,
+                                role=related_role,
+                                confidence=float(row.get("contact_organization_confidence") or 0.9),
+                                evidence=row.get("contact_organization_evidence")
+                                or "Verified project relationship",
+                            )
+                        )
+                        counts["roles"] += 1
+                target_org = contact_org
             for suffix in range(1, 6):
                 contact_type = row.get(f"contact_type_{suffix}", "").strip()
                 if not contact_type or not target_org:
@@ -389,6 +561,9 @@ def import_enrichment_csv(db: Session, path: Path) -> dict[str, int]:
                     match_reason=row.get(f"contact_match_reason_{suffix}")
                     or "same brand shown on official source",
                     observed_at=observed_at,
+                    utility_class=row.get(f"contact_utility_class_{suffix}") or "UNKNOWN",
+                    relationship_to_opportunity=row.get(f"contact_relationship_{suffix}")
+                    or "Public route for the resolved project entity",
                 )
                 counts["contacts"] += int(created)
             refresh_enrichment(
@@ -396,6 +571,8 @@ def import_enrichment_csv(db: Session, path: Path) -> dict[str, int]:
                 opportunity,
                 row.get("operator_status") or None,
                 row.get("chain_classification") or None,
+                row.get("operator_confidence_category") or None,
+                row.get("operator_resolution_reason") or row.get("operator_evidence") or None,
             )
             counts["opportunities"] += 1
     db.commit()

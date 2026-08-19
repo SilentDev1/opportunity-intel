@@ -8,9 +8,11 @@ from sqlalchemy import select
 from .collectors import collect_source
 from .db import SessionLocal
 from .enrichment import (
+    freeze_blind_batch,
     import_enrichment_csv,
     import_evidence_csv,
     import_vendor_feedback_csv,
+    record_blind_reviews,
     refresh_enrichment,
 )
 from .models import Opportunity, Source
@@ -158,3 +160,21 @@ def export_ready(
     with SessionLocal() as db:
         count = export_vendor_ready(db, vendor_name, path)
         typer.echo(f"Exported {count} vendor-ready {vendor_name} leads to {path}")
+
+
+@app.command("freeze-blind-batch")
+def freeze_batch(name: str, source_scope: str, opportunity_ids: str) -> None:
+    with SessionLocal() as db:
+        batch = freeze_blind_batch(
+            db,
+            name,
+            source_scope,
+            {item.strip() for item in opportunity_ids.split(",") if item.strip()},
+        )
+        typer.echo(f"Frozen blind batch {batch.name}: {batch.id}")
+
+
+@app.command("record-blind-reviews")
+def record_batch_reviews(name: str) -> None:
+    with SessionLocal() as db:
+        typer.echo(json.dumps(record_blind_reviews(db, name), indent=2))

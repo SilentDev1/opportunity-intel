@@ -21,7 +21,8 @@ from .models import (
 from .services import infer_needs, infer_stage, normalize_address, normalize_name, score_opportunity
 
 ITEM = re.compile(
-    r"(?ms)^\s*\d+\.\s+((?:SP|CU)\d{4}-\d+)\s+(.*?)(?=^\s*\d+\.\s+(?:SP|CU|S)\d{4}-\d+|^\s*[IVX]+\.|\Z)"
+    r"(?ms)^\s*\d+\.\s+((?:PDSP|SP|CU)\d{4}-\d+)\s+(.*?)"
+    r"(?=^\s*\d+\.\s+(?:PDSP|SP|CU|S)\d{4}-\d+|^\s*[IVX]+\.|\Z)"
 )
 ADDRESS = re.compile(r"Property(?:ies)? located (?:at|on)\s+(.+?)\s*\(Tax Map", re.I | re.S)
 MEETING_DATE = re.compile(r"(?:Thursday|Wednesday|Tuesday|Monday),\s+(\w+ \d{1,2}, \d{4})")
