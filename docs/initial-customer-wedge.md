@@ -20,3 +20,6 @@ Current A/B geographic density is Manchester 3, Portsmouth 2, Salem 2, Bedford 1
 
 This is a testing wedge, not proof of willingness to pay. No vendor response has been fabricated or received.
 
+## Phase 1.0 live-corpus check
+
+Commercial cleaning, commercial insurance, and internet/IT inference each touch the same five fresh/updated overall A/B records, all contactable, with one fresh A/B. Security/access control and pest control have no current A/B advantage in this corpus. This tie is not evidence for a pivot: cleaning retains the clearest stage-specific value story and the only prepared vendor test, while no category has vendor feedback. Cleaning remains the validation wedge, provisionally.

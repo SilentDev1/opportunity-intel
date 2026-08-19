@@ -29,3 +29,8 @@ The updated ranking emphasizes fresh/actionable contribution and operator/contac
 
 Official company/location sources remain the highest-value corroboration layer per record. The municipal-land-use plus official-company combination is 4/4 actionable, contactable, and A/B-ready, though the sample is small.
 
+# Phase 1.0 current-flow update — 2026-08-19
+
+The latest live rerun produced 10 new Dover newsletter documents but zero signals or opportunities; one linked document was rate-limited. All other configured feeds produced zero new documents. Current-window fresh-opportunity contribution remains Salem planning 1 and Manchester planning 1. No other source contributes a fresh opportunity, and only Salem contributes a fresh cleaning A/B lead.
+
+For production value, current issued permits, sign permits, and occupancy/inspection updates now rank above further archive depth. Historical sources remain useful for regression and chronology only.

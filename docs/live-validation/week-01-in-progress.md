@@ -48,3 +48,7 @@ Week 1 is still incomplete. Freshness was reclassified from source provenance ra
 The simulated statewide cleaning customer would have received one new lead this period: Bluebird Salem. The full audited test packet contains nine A/B cleaning leads, but eight are historical discoveries or updates and must not be represented as this week's new leads.
 
 A new 17-record post-fix blind batch was frozen before review. It produced 6 actionable, 4 false positive, 4 stale, and 3 not actionable results. The configured unseen sources did not legitimately yield 20 candidates. No future week and no vendor response are represented.
+
+# Phase 1.0 update — 2026-08-19
+
+Week 1 remains incomplete. A new live collection check completed eight configured sources; Dover preserved 10 new newsletter documents but degraded when a linked host returned HTTP 429. Processing created no new opportunity, signal, operator resolution, contact route, or stage transition. Counts remain 2 fresh opportunities, 2 fresh actionable, 1 fresh cleaning A/B, and 0 meaningful updates. The actual fresh A/B lead remains Bluebird Self Storage in Salem; it is both statewide and Southern NH flow.
