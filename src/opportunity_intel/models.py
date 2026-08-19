@@ -332,17 +332,25 @@ class VendorFeedback(Base):
     __tablename__ = "vendor_feedback"
     __table_args__ = (UniqueConstraint("vendor_profile", "opportunity_id", "created_at"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    response_key: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     vendor_profile: Mapped[str] = mapped_column(String(80), index=True)
+    vendor_name: Mapped[str | None] = mapped_column(String(160), index=True)
+    vendor_type: Mapped[str | None] = mapped_column(String(80))
+    service_territory: Mapped[str | None] = mapped_column(String(160))
     opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), index=True)
     already_knew: Mapped[bool | None] = mapped_column(Boolean)
     would_contact: Mapped[bool | None] = mapped_column(Boolean)
+    would_contact_response: Mapped[str | None] = mapped_column(String(10))
     timing_useful: Mapped[bool | None] = mapped_column(Boolean)
+    timing_response: Mapped[str | None] = mapped_column(String(20))
     lead_relevant: Mapped[bool | None] = mapped_column(Boolean)
     contact_info_sufficient: Mapped[bool | None] = mapped_column(Boolean)
+    contact_sufficiency_response: Mapped[str | None] = mapped_column(String(10))
     rating: Mapped[int | None] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(Text)
     outcome_status: Mapped[str] = mapped_column(String(40), default="NOT_REVIEWED", index=True)
     weekly_list_saves_time: Mapped[bool | None] = mapped_column(Boolean)
+    wants_weekly_feed: Mapped[bool | None] = mapped_column(Boolean)
     good_leads_per_month: Mapped[int | None] = mapped_column(Integer)
     missing_information: Mapped[str | None] = mapped_column(Text)
     willing_to_pay_49: Mapped[bool | None] = mapped_column(Boolean)
@@ -351,6 +359,21 @@ class VendorFeedback(Base):
     willing_to_pay_149: Mapped[bool | None] = mapped_column(Boolean)
     reasonable_monthly_price: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class VendorLeadOutcome(Base):
+    __tablename__ = "vendor_lead_outcomes"
+    __table_args__ = (
+        UniqueConstraint("vendor_name", "opportunity_id", "outcome_status", "outcome_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    vendor_name: Mapped[str] = mapped_column(String(160), index=True)
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), index=True)
+    date_shown: Mapped[date | None] = mapped_column(Date)
+    date_contacted: Mapped[date | None] = mapped_column(Date)
+    outcome_status: Mapped[str] = mapped_column(String(40), index=True)
+    outcome_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
 
 
 class BlindValidationBatch(Base):

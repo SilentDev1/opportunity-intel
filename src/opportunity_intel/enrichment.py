@@ -24,6 +24,7 @@ from .models import (
     Source,
     StageHistory,
     VendorFeedback,
+    VendorLeadOutcome,
 )
 from .services import infer_stage
 
@@ -739,19 +740,51 @@ def import_vendor_feedback_csv(db: Session, path: Path) -> int:
             rating = int(row["rating"]) if row.get("rating") else None
             if rating is not None and not 1 <= rating <= 5:
                 raise ValueError("Vendor rating must be 1 through 5")
+            would_response = (row.get("would_contact_response") or "").strip().upper() or None
+            timing_response = (row.get("timing_response") or "").strip().upper() or None
+            contact_response = (
+                row.get("contact_sufficiency_response") or ""
+            ).strip().upper() or None
+            if would_response and would_response not in {"YES", "MAYBE", "NO"}:
+                raise ValueError("would_contact_response must be YES, MAYBE, or NO")
+            if timing_response and timing_response not in {"TOO_EARLY", "GOOD", "TOO_LATE"}:
+                raise ValueError("timing_response must be TOO_EARLY, GOOD, or TOO_LATE")
+            if contact_response and contact_response not in {"YES", "PARTIAL", "NO"}:
+                raise ValueError("contact_sufficiency_response must be YES, PARTIAL, or NO")
+            vendor_name = (row.get("vendor_name") or row["vendor_profile"]).strip()
+            response_identity = "|".join(
+                [vendor_name.casefold(), row["opportunity_id"], row.get("date_shown", "").strip()]
+            )
+            response_key = hashlib.sha256(response_identity.encode()).hexdigest()
+            if db.scalar(select(VendorFeedback).where(VendorFeedback.response_key == response_key)):
+                continue
             db.add(
                 VendorFeedback(
+                    response_key=response_key,
                     vendor_profile=row["vendor_profile"],
+                    vendor_name=vendor_name,
+                    vendor_type=row.get("vendor_type") or None,
+                    service_territory=row.get("service_territory") or None,
                     opportunity_id=row["opportunity_id"],
                     already_knew=optional_bool(row.get("already_knew", "")),
-                    would_contact=optional_bool(row.get("would_contact", "")),
-                    timing_useful=optional_bool(row.get("timing_useful", "")),
+                    would_contact=(would_response in {"YES", "MAYBE"})
+                    if would_response
+                    else optional_bool(row.get("would_contact", "")),
+                    would_contact_response=would_response,
+                    timing_useful=(timing_response == "GOOD")
+                    if timing_response
+                    else optional_bool(row.get("timing_useful", "")),
+                    timing_response=timing_response,
                     lead_relevant=optional_bool(row.get("lead_relevant", "")),
-                    contact_info_sufficient=optional_bool(row.get("contact_info_sufficient", "")),
+                    contact_info_sufficient=(contact_response == "YES")
+                    if contact_response
+                    else optional_bool(row.get("contact_info_sufficient", "")),
+                    contact_sufficiency_response=contact_response,
                     rating=rating,
                     comment=row.get("comment") or None,
                     outcome_status=outcome,
                     weekly_list_saves_time=optional_bool(row.get("weekly_list_saves_time", "")),
+                    wants_weekly_feed=optional_bool(row.get("wants_weekly_feed", "")),
                     good_leads_per_month=int(row["good_leads_per_month"])
                     if row.get("good_leads_per_month")
                     else None,
@@ -766,6 +799,48 @@ def import_vendor_feedback_csv(db: Session, path: Path) -> int:
                     created_at=datetime.fromisoformat(row["created_at"])
                     if row.get("created_at")
                     else datetime.utcnow(),
+                )
+            )
+            count += 1
+    db.commit()
+    return count
+
+
+def import_vendor_outcomes_csv(db: Session, path: Path) -> int:
+    count = 0
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if not row.get("opportunity_id"):
+                continue
+            if not db.get(Opportunity, row["opportunity_id"]):
+                raise ValueError(f"Unknown opportunity: {row['opportunity_id']}")
+            status = row["outcome_status"].strip().upper()
+            if status not in VENDOR_OUTCOMES - {"NOT_REVIEWED"}:
+                raise ValueError(f"Unknown vendor outcome: {status}")
+            outcome_at = datetime.fromisoformat(row["outcome_at"])
+            existing = db.scalar(
+                select(VendorLeadOutcome).where(
+                    VendorLeadOutcome.vendor_name == row["vendor_name"].strip(),
+                    VendorLeadOutcome.opportunity_id == row["opportunity_id"],
+                    VendorLeadOutcome.outcome_status == status,
+                    VendorLeadOutcome.outcome_at == outcome_at,
+                )
+            )
+            if existing:
+                continue
+            db.add(
+                VendorLeadOutcome(
+                    vendor_name=row["vendor_name"].strip(),
+                    opportunity_id=row["opportunity_id"],
+                    date_shown=datetime.fromisoformat(row["date_shown"]).date()
+                    if row.get("date_shown")
+                    else None,
+                    date_contacted=datetime.fromisoformat(row["date_contacted"]).date()
+                    if row.get("date_contacted")
+                    else None,
+                    outcome_status=status,
+                    outcome_at=outcome_at,
+                    notes=row.get("notes") or None,
                 )
             )
             count += 1

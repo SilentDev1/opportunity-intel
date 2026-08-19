@@ -12,11 +12,13 @@ from .enrichment import (
     import_enrichment_csv,
     import_evidence_csv,
     import_vendor_feedback_csv,
+    import_vendor_outcomes_csv,
     record_blind_reviews,
     refresh_enrichment,
 )
 from .models import Opportunity, Source
 from .phase09 import export_cleaning_packet, refresh_phase09_metrics, weekly_cleaning_flow
+from .phase10 import export_current_cleaning_test, write_vendor_validation_report
 from .processing import process_manchester, process_phase_05
 from .registry import seed_sources
 from .reporting import (
@@ -143,6 +145,12 @@ def import_vendor_feedback(path: Path) -> None:
         typer.echo(f"Imported {import_vendor_feedback_csv(db, path)} vendor responses")
 
 
+@app.command("import-vendor-outcomes")
+def import_vendor_outcomes(path: Path) -> None:
+    with SessionLocal() as db:
+        typer.echo(f"Imported {import_vendor_outcomes_csv(db, path)} vendor outcome events")
+
+
 @app.command("refresh-readiness")
 def refresh_readiness() -> None:
     with SessionLocal() as db:
@@ -206,3 +214,22 @@ def export_cleaning(
     with SessionLocal() as db:
         count = export_cleaning_packet(db, path, territory, fresh_only)
         typer.echo(f"Exported {count} cleaning leads to {path}")
+
+
+@app.command("export-current-cleaning-test")
+def export_current_cleaning(
+    path: Path = Path("data/exports/vendor-test/cleaning-current.csv"), limit: int = 10
+) -> None:
+    with SessionLocal() as db:
+        count = export_current_cleaning_test(db, path, limit)
+        typer.echo(f"Exported {count} current cleaning leads to {path}")
+
+
+@app.command("write-vendor-validation-report")
+def write_vendor_report(
+    path: Path = Path("docs/vendor-validation-results.md"),
+    vendor_profile: str = "commercial_cleaning",
+) -> None:
+    with SessionLocal() as db:
+        write_vendor_validation_report(db, path, vendor_profile)
+        typer.echo(f"Wrote vendor validation report to {path}")
