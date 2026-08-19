@@ -53,6 +53,20 @@ SOURCES = [
         "base_url": "https://www.dover.nh.gov/government/city-operations/executive/business-development/down-to-business/",
         "collector_name": "dover_business_news",
     },
+    {
+        "name": "Salem Issued Building Permits (Historical)",
+        "source_type": "building_permit",
+        "jurisdiction": "Salem, NH",
+        "base_url": "https://www.salemnh.gov/323/Issued-Permits",
+        "collector_name": "salem_issued_permits",
+    },
+    {
+        "name": "Salem Hawker and Peddler Licenses",
+        "source_type": "business_license",
+        "jurisdiction": "Salem, NH",
+        "base_url": "https://www.salemnh.gov/323/Issued-Permits",
+        "collector_name": "salem_hawker_licenses",
+    },
 ]
 
 

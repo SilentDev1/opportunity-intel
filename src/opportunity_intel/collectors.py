@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import io
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -153,11 +154,115 @@ class PortsmouthPlanningCollector(SourceCollector):
         return list(found.values())
 
 
+def extract_salem_permits(text: str) -> list[dict[str, str]]:
+    """Extract commercial permit records without retaining private contact details."""
+    records: list[dict[str, str]] = []
+    chunks = re.split(r"(?=\bB-\d{2}-\d+\b)", " ".join(text.split()))
+    for chunk in chunks:
+        permit = re.match(r"(B-\d{2}-\d+)\s+(\d{1,2}/\d{1,2}/\d{4})\s+(.+)", chunk)
+        if not permit:
+            continue
+        body = permit.group(3).strip()
+        commercial = re.search(
+            r"COMMERCIAL|CHANGE OF OCCUPANT|TENANT FIT|RESTAURANT|RETAIL|OFFICE|"
+            r"INDUSTRIAL|WAREHOUSE|SIGN|CERTIFICATE OF OCCUPANCY",
+            body,
+            re.I,
+        )
+        residential = re.search(
+            r"ALTERATION--RESIDENTIAL|NEW CONSTRUCTION--1 FAMILY|SINGLE.FAMILY|"
+            r"DECK|POOL|KITCHEN REMODEL|\bADU\b|REPLACEMENT (?:MANUFACTURED |MOBILE )?HOME|"
+            r"\b\d+\s*BEDROOMS?\b",
+            body,
+            re.I,
+        )
+        if not commercial or (residential and not re.search(r"COMMERCIAL", body, re.I)):
+            continue
+        address = re.match(
+            r"(\d+[A-Z-]*\s+[A-Z0-9 .'#&-]+?\b(?:ST|RD|DR|AVE|BLVD|LN|WAY|HWY))\b",
+            body,
+        )
+        records.append(
+            {
+                "external_id": permit.group(1),
+                "record_type": "building_permit",
+                "text": chunk.strip(),
+                "permit_number": permit.group(1),
+                "issued_date": permit.group(2),
+                "address": address.group(1).strip() if address else "",
+            }
+        )
+    return records
+
+
+class SalemIssuedPermitCollector(CivicEngageAgendaCollector):
+    async def discover(self, client: httpx.AsyncClient) -> list[DiscoveredDocument]:
+        response = await client.get(self.source.base_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        found = []
+        for link in soup.select("a[href*='DocumentCenter/View']"):
+            title = " ".join(link.get_text(" ", strip=True).split())
+            if re.search(r"2025 Through|2025 Though", title):
+                found.append(
+                    DiscoveredDocument(urljoin(self.source.base_url, str(link.get("href"))), title)
+                )
+        return found
+
+    def parse(self, content: bytes, content_type: str, url: str) -> list[dict[str, str]]:
+        if "pdf" not in content_type:
+            return []
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(content)).pages)
+        return extract_salem_permits(text)
+
+
+def extract_salem_hawker_licenses(text: str) -> list[dict[str, str]]:
+    records = []
+    pattern = re.compile(
+        r"(HP-\d{2}-\d+)\s+(\d{1,2}/\d{1,2}/\d{4})(.+?)"
+        r"(?=\s+[A-Z][a-z]+\s+[A-Z][a-z]+\s+\d{3}[.-]\d{3}|\s+HP-|$)"
+    )
+    for match in pattern.finditer(" ".join(text.split())):
+        records.append(
+            {
+                "external_id": match.group(1),
+                "record_type": "hawker_peddler_license",
+                "text": f"{match.group(1)} {match.group(2)} {match.group(3).strip()}",
+                "submitted_date": match.group(2),
+                "business_name": match.group(3).strip(),
+            }
+        )
+    return records
+
+
+class SalemHawkerLicenseCollector(CivicEngageAgendaCollector):
+    async def discover(self, client: httpx.AsyncClient) -> list[DiscoveredDocument]:
+        response = await client.get(self.source.base_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        return [
+            DiscoveredDocument(
+                urljoin(self.source.base_url, str(link.get("href"))),
+                "Hawker Peddlers License List 2026",
+            )
+            for link in soup.select("a[href*='DocumentCenter/View']")
+            if "Hawker Peddlers License List 2026" in link.get_text(" ", strip=True)
+        ]
+
+    def parse(self, content: bytes, content_type: str, url: str) -> list[dict[str, str]]:
+        if "pdf" not in content_type:
+            return []
+        text = " ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(content)).pages)
+        return extract_salem_hawker_licenses(text)
+
+
 COLLECTORS = {
     "civic_engage_agenda": CivicEngageAgendaCollector,
     "manchester_planning": ManchesterPlanningCollector,
     "dover_business_news": DoverBusinessNewsCollector,
     "portsmouth_planning": PortsmouthPlanningCollector,
+    "salem_issued_permits": SalemIssuedPermitCollector,
+    "salem_hawker_licenses": SalemHawkerLicenseCollector,
 }
 
 
@@ -219,7 +324,15 @@ async def collect_source(db: Session, source: Source, limit: int = 20) -> Collec
                             raw_source_document_id=doc.id,
                             record_type=record["record_type"],
                             external_id=record["external_id"],
-                            raw_payload={"source_url": item.url, "title": item.title},
+                            raw_payload={
+                                "source_url": item.url,
+                                "title": item.title,
+                                **{
+                                    key: value
+                                    for key, value in record.items()
+                                    if key not in {"external_id", "record_type", "text"}
+                                },
+                            },
                             extracted_text=record.get("text"),
                             parser_version=collector.parser_version,
                         )
