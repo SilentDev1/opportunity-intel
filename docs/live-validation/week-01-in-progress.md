@@ -40,3 +40,11 @@ numbers above are a starting snapshot, not a completed weekly result.
 Actual collection on this date added 18 Manchester planning documents, 30 Portsmouth planning documents, and 24 Salem historical-permit documents. Processing and review expanded the dataset to 128 reviewed opportunities. The frozen 63-record blind cohort yielded 4 actionable leads; a separate post-fix two-record cohort yielded 2 actionable leads. No later observation period is represented.
 
 Operator/contact work upgraded FedEx, Yatco, Kennebunk Savings, a Bedford speculative-project broker route, and a Keewaydin property-manager route. The original cohort reached 11/17 contactable and 8 A/B vendor-ready leads. No real vendor responses have been received yet.
+
+# Phase 0.9 update — 2026-08-19
+
+Week 1 is still incomplete. Freshness was reclassified from source provenance rather than insertion time: 2 opportunities are FRESH, 4 UPDATED, and 139 HISTORICAL. The actual weekly cleaning flow so far is 2 fresh opportunities, 2 fresh actionable, 2 cleaning-relevant, 1 contactable, and 1 CLEANING_A/B lead. No separate meaningful update to an older cleaning lead is measurable.
+
+The simulated statewide cleaning customer would have received one new lead this period: Bluebird Salem. The full audited test packet contains nine A/B cleaning leads, but eight are historical discoveries or updates and must not be represented as this week's new leads.
+
+A new 17-record post-fix blind batch was frozen before review. It produced 6 actionable, 4 false positive, 4 stale, and 3 not actionable results. The configured unseen sources did not legitimately yield 20 candidates. No future week and no vendor response are represented.
