@@ -1,5 +1,13 @@
 # New Hampshire source feasibility map
 
+## Phase 0.7 targeted enrichment
+
+Manual-verified adapters preserve evidence snapshots from official company pages, the New
+Hampshire Lottery location directory, FMCSA SAFER, and an official Salem permit report. They are
+disabled as scheduled collectors: their purpose is operator resolution, contactability,
+corroboration, or stage confidence—not broad crawling. Every stored contact has its own source and
+verification metadata.
+
 Last tested 2026-08-19. “Working” means a live request succeeded during this validation run;
 “implemented” means a collector exists here. Requests are sequential, delayed, bounded, and
 hash-deduplicated. No authentication barriers were bypassed.

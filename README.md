@@ -1,5 +1,9 @@
 # Opportunity Intel
 
+Phase 0.7 adds provenance-backed business contacts, explicit operator/developer roles, independent
+signal families, explainable vendor-readiness scoring, targeted official-source enrichment, blind
+batch reporting, and vendor-ready exports. See `docs/phase07-validation.md` for measured results.
+
 Opportunity Intel turns fragmented public business activity into actionable local B2B sales opportunities. It preserves evidence first, resolves signals to organizations and physical locations, infers lifecycle stage, and produces explainable opportunities and customer matches.
 
 It is **not merely a building-permit notification service**. The core flow is:

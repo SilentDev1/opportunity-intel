@@ -1,5 +1,13 @@
 # Scoring and inference methodology
 
+## Vendor readiness (Phase 0.7)
+
+Vendor readiness does not replace the opportunity score. It adds actionable review (20), known
+operator (20), exact location (10), stage confidence (up to 15), independent corroboration (up to
+15), verified contactability (15, or 8 for partial), and fresh/timely stage (5). Bands are HIGH at
+75+, MEDIUM at 50–74.9, and LOW below 50. Municipal documents describing one underlying event
+share a signal family and cannot inflate corroboration.
+
 Opportunity Intel keeps four separate concepts: entity confidence, lifecycle-stage confidence, opportunity score, and customer match score. Scores are internal prioritization aids, not probabilities or promised opening dates.
 
 ## Entity confidence

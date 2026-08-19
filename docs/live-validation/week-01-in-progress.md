@@ -1,5 +1,17 @@
 # Week 1 — in progress
 
+## Phase 0.7 update — 2026-08-19
+
+- Five previously unseen Manchester planning documents collected in feed order.
+- Five records parsed; three municipal signals and two candidates produced.
+- Blind review: one actionable, zero false positives/duplicates/stale, and one uncertain.
+- One official-company corroboration was added after blind review for Quirk.
+- Six original-cohort contactability upgrades plus one blind-lead upgrade were enrichment updates,
+  not new municipal discoveries.
+- Wonder moved to PRE_OPENING on an official announcement. Twenty-One Keewaydin moved to
+  BUILDOUT on an official permit. Neither is an opening confirmation.
+- Salem current-feed attempts failed or stalled; failed runs remain visible and add no data.
+
 - Period: 2026-08-17 through 2026-08-23
 - Observation started: 2026-08-19
 - Status: incomplete; do not interpret as a full week
