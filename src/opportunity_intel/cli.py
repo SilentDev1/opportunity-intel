@@ -7,13 +7,20 @@ from sqlalchemy import select
 
 from .collectors import collect_source
 from .db import SessionLocal
-from .models import Source
+from .enrichment import (
+    import_enrichment_csv,
+    import_evidence_csv,
+    import_vendor_feedback_csv,
+    refresh_enrichment,
+)
+from .models import Opportunity, Source
 from .processing import process_manchester, process_phase_05
 from .registry import seed_sources
 from .reporting import (
     detailed_validation_report,
     export_actionable_matrix,
     export_validation_csv,
+    export_vendor_ready,
     export_vendor_validation,
     import_review_csv,
     review_opportunity,
@@ -113,3 +120,41 @@ def export_vendor(
     with SessionLocal() as db:
         count = export_vendor_validation(db, vendor_name, path)
         typer.echo(f"Exported {count} {vendor_name} matches to {path}")
+
+
+@app.command("import-enrichment")
+def import_enrichment(path: Path) -> None:
+    with SessionLocal() as db:
+        typer.echo(json.dumps(import_enrichment_csv(db, path), indent=2))
+
+
+@app.command("import-evidence")
+def import_evidence(path: Path) -> None:
+    with SessionLocal() as db:
+        typer.echo(json.dumps(import_evidence_csv(db, path), indent=2))
+
+
+@app.command("import-vendor-feedback")
+def import_vendor_feedback(path: Path) -> None:
+    with SessionLocal() as db:
+        typer.echo(f"Imported {import_vendor_feedback_csv(db, path)} vendor responses")
+
+
+@app.command("refresh-readiness")
+def refresh_readiness() -> None:
+    with SessionLocal() as db:
+        count = 0
+        for opportunity in db.scalars(select(Opportunity)):
+            refresh_enrichment(db, opportunity)
+            count += 1
+        db.commit()
+        typer.echo(f"Refreshed {count} opportunities")
+
+
+@app.command("export-vendor-ready")
+def export_ready(
+    vendor_name: str, path: Path = Path("data/exports/vendor-ready/leads.csv")
+) -> None:
+    with SessionLocal() as db:
+        count = export_vendor_ready(db, vendor_name, path)
+        typer.echo(f"Exported {count} vendor-ready {vendor_name} leads to {path}")

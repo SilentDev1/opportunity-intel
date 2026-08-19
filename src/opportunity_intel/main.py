@@ -13,10 +13,13 @@ from .collectors import collect_source
 from .config import get_settings
 from .db import get_db
 from .models import (
+    BusinessContact,
     CollectionRun,
     InferredNeed,
     Location,
     Opportunity,
+    OpportunityEnrichment,
+    OpportunityOrganizationRole,
     Organization,
     OrganizationAlias,
     ReviewItem,
@@ -170,6 +173,29 @@ def opportunity(entity_id: str, db: DB) -> dict[str, Any]:
         serialize(n)
         for n in db.scalars(select(InferredNeed).where(InferredNeed.opportunity_id == obj.id))
     ]
+    enrichment = db.get(OpportunityEnrichment, obj.id)
+    result["enrichment"] = serialize(enrichment) if enrichment else None
+    roles = list(
+        db.scalars(
+            select(OpportunityOrganizationRole).where(
+                OpportunityOrganizationRole.opportunity_id == obj.id
+            )
+        )
+    )
+    result["related_organizations"] = [
+        {
+            **serialize(role),
+            "organization": serialize(db.get(Organization, role.organization_id)),
+        }
+        for role in roles
+    ]
+    org_ids = {obj.organization_id, *(role.organization_id for role in roles)}
+    result["contacts"] = [
+        serialize(contact)
+        for contact in db.scalars(
+            select(BusinessContact).where(BusinessContact.organization_id.in_(org_ids))
+        )
+    ]
     return result
 
 
@@ -257,10 +283,32 @@ def detail(entity_id: str, request: Request, db: DB) -> HTMLResponse:
         )
     )
     needs = list(db.scalars(select(InferredNeed).where(InferredNeed.opportunity_id == obj.id)))
+    enrichment = db.get(OpportunityEnrichment, obj.id)
+    roles = list(
+        db.scalars(
+            select(OpportunityOrganizationRole).where(
+                OpportunityOrganizationRole.opportunity_id == obj.id
+            )
+        )
+    )
+    related = [(role, db.get(Organization, role.organization_id)) for role in roles]
+    org_ids = {obj.organization_id, *(role.organization_id for role in roles)}
+    contacts = list(
+        db.scalars(select(BusinessContact).where(BusinessContact.organization_id.in_(org_ids)))
+    )
     return templates.TemplateResponse(
         request,
         "detail.html",
-        {"opportunity": obj, "org": org, "location": loc, "timeline": timeline, "needs": needs},
+        {
+            "opportunity": obj,
+            "org": org,
+            "location": loc,
+            "timeline": timeline,
+            "needs": needs,
+            "enrichment": enrichment,
+            "related": related,
+            "contacts": contacts,
+        },
     )
 
 

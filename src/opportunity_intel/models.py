@@ -150,6 +150,30 @@ class OrganizationAlias(Base):
     source_id: Mapped[str | None] = mapped_column(ForeignKey("sources.id"))
 
 
+class BusinessContact(Base, TimestampMixin):
+    __tablename__ = "business_contacts"
+    __table_args__ = (UniqueConstraint("organization_id", "contact_type", "value", "source_url"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    location_id: Mapped[str | None] = mapped_column(ForeignKey("locations.id"), index=True)
+    contact_type: Mapped[str] = mapped_column(String(40), index=True)
+    value: Mapped[str] = mapped_column(Text)
+    label: Mapped[str | None] = mapped_column(String(120))
+    is_official: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=True)
+    source_url: Mapped[str] = mapped_column(Text)
+    source_name: Mapped[str] = mapped_column(String(200))
+    source_type: Mapped[str] = mapped_column(String(60))
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("sources.id"))
+    confidence: Mapped[float] = mapped_column(Float)
+    match_reason: Mapped[str] = mapped_column(Text)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(30), default="active")
+
+
 class Location(Base, TimestampMixin):
     __tablename__ = "locations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
@@ -268,6 +292,37 @@ class OpportunityOrganizationRole(Base):
     confidence: Mapped[float] = mapped_column(Float)
     evidence: Mapped[str] = mapped_column(Text)
     source_id: Mapped[str | None] = mapped_column(ForeignKey("sources.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class OpportunityEnrichment(Base, TimestampMixin):
+    __tablename__ = "opportunity_enrichments"
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), primary_key=True)
+    operator_status: Mapped[str] = mapped_column(String(40), default="UNKNOWN", index=True)
+    chain_classification: Mapped[str] = mapped_column(String(40), default="UNKNOWN", index=True)
+    contactability_status: Mapped[str] = mapped_column(
+        String(40), default="NOT_CONTACTABLE", index=True
+    )
+    contactability_reason: Mapped[str] = mapped_column(Text, default="No verified route stored.")
+    vendor_readiness_score: Mapped[float] = mapped_column(Float, default=0, index=True)
+    vendor_readiness_band: Mapped[str] = mapped_column(String(20), default="LOW", index=True)
+    vendor_readiness_breakdown: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class VendorFeedback(Base):
+    __tablename__ = "vendor_feedback"
+    __table_args__ = (UniqueConstraint("vendor_profile", "opportunity_id", "created_at"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    vendor_profile: Mapped[str] = mapped_column(String(80), index=True)
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), index=True)
+    already_knew: Mapped[bool | None] = mapped_column(Boolean)
+    would_contact: Mapped[bool | None] = mapped_column(Boolean)
+    timing_useful: Mapped[bool | None] = mapped_column(Boolean)
+    lead_relevant: Mapped[bool | None] = mapped_column(Boolean)
+    contact_info_sufficient: Mapped[bool | None] = mapped_column(Boolean)
+    rating: Mapped[int | None] = mapped_column(Integer)
+    comment: Mapped[str | None] = mapped_column(Text)
+    outcome_status: Mapped[str] = mapped_column(String(40), default="NOT_REVIEWED", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

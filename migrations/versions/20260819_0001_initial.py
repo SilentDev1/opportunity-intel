@@ -14,7 +14,13 @@ depends_on = None
 def upgrade() -> None:
     # This prototype migration intentionally uses metadata, but must remain frozen at the
     # Phase 0 schema so later explicit migrations also work on a brand-new database.
-    later_tables = {"opportunity_organization_roles", "stage_history"}
+    later_tables = {
+        "opportunity_organization_roles",
+        "stage_history",
+        "business_contacts",
+        "opportunity_enrichments",
+        "vendor_feedback",
+    }
     Base.metadata.create_all(
         bind=op.get_bind(),
         tables=[table for name, table in Base.metadata.tables.items() if name not in later_tables],

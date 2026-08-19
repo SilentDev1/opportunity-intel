@@ -7,11 +7,15 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .enrichment import independent_signal_families
 from .models import (
+    BusinessContact,
     InferredNeed,
     Location,
     ManualReview,
     Opportunity,
+    OpportunityEnrichment,
+    OpportunityOrganizationRole,
     Organization,
     ReviewItem,
     Signal,
@@ -215,6 +219,7 @@ def detailed_validation_report(db: Session) -> dict[str, Any]:
     report["by_industry"] = {key: dict(value) for key, value in sorted(by_industry.items())}
     report["by_source"] = {key: dict(value) for key, value in sorted(by_source.items())}
     report["multi_signal"] = multi_signal_metrics(db)
+    report["independent_signal_families"] = independent_signal_metrics(db)
     report["contactability"] = contactability_metrics(db)
     return report
 
@@ -327,18 +332,60 @@ def multi_signal_metrics(db: Session) -> dict[str, Any]:
 def contactability_metrics(db: Session) -> dict[str, Any]:
     reviews = latest_reviews(db)
     actionable = [
-        db.get(Organization, opportunity.organization_id)
+        opportunity
         for opportunity in db.scalars(select(Opportunity))
         if reviews.get(opportunity.id) and reviews[opportunity.id].verdict == "actionable"
     ]
-    contactable = sum(bool(org and (org.website or org.phone or org.email)) for org in actionable)
+    status_values = []
+    for item in actionable:
+        enrichment = db.get(OpportunityEnrichment, item.id)
+        status_values.append(enrichment.contactability_status if enrichment else "NOT_CONTACTABLE")
+    statuses = Counter(status_values)
+    contactable = statuses["CONTACTABLE"]
     return {
         "actionable": len(actionable),
         "with_legitimate_contact_route": contactable,
         "contactability_rate": round(contactable / len(actionable) * 100, 1)
         if actionable
         else None,
+        "statuses": dict(statuses),
     }
+
+
+def independent_signal_metrics(db: Session) -> dict[str, Any]:
+    reviews = latest_reviews(db)
+    buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    for opportunity in db.scalars(select(Opportunity)):
+        signals = list(
+            db.scalars(
+                select(Signal).where(
+                    Signal.organization_id == opportunity.organization_id,
+                    Signal.location_id == opportunity.location_id,
+                )
+            )
+        )
+        count = len(independent_signal_families(signals))
+        bucket = "1" if count <= 1 else "2" if count == 2 else "3+"
+        buckets[bucket]["opportunities"] += 1
+        review = reviews.get(opportunity.id)
+        if review:
+            buckets[bucket]["reviewed"] += 1
+            buckets[bucket][review.verdict] += 1
+    result: dict[str, Any] = {}
+    for bucket in ("1", "2", "3+"):
+        values = buckets[bucket]
+        result[bucket] = dict(values)
+        result[bucket]["actionable_rate"] = (
+            round(values["actionable"] / values["reviewed"] * 100, 1)
+            if values["reviewed"]
+            else None
+        )
+        result[bucket]["false_positive_rate"] = (
+            round(values["false_positive"] / values["reviewed"] * 100, 1)
+            if values["reviewed"]
+            else None
+        )
+    return result
 
 
 def weekly_cohort(db: Session, period_start: date, period_end: date) -> dict[str, Any]:
@@ -379,12 +426,22 @@ def export_validation_csv(db: Session, path: Path) -> int:
     fields = [
         "organization",
         "brand",
+        "operating_brand",
+        "operator_status",
         "city",
         "address",
         "industry",
         "stage",
         "opportunity_type",
         "score",
+        "vendor_readiness_score",
+        "independent_signal_count",
+        "contactability_status",
+        "official_website",
+        "business_phone",
+        "business_email",
+        "contact_page",
+        "timing_value",
         "stage_confidence",
         "signal_count",
         "first_detected_at",
@@ -422,16 +479,53 @@ def export_validation_csv(db: Session, path: Path) -> int:
                 )
             )
             review = reviews.get(opportunity.id)
+            enrichment = db.get(OpportunityEnrichment, opportunity.id)
+            role_org_ids = list(
+                db.scalars(
+                    select(OpportunityOrganizationRole.organization_id).where(
+                        OpportunityOrganizationRole.opportunity_id == opportunity.id,
+                        OpportunityOrganizationRole.role.in_(["operator", "tenant", "franchisee"]),
+                    )
+                )
+            )
+            contacts = list(
+                db.scalars(
+                    select(BusinessContact).where(
+                        BusinessContact.organization_id.in_(role_org_ids or [org.id]),
+                        BusinessContact.status == "active",
+                    )
+                )
+            )
+            operator_org = db.get(Organization, role_org_ids[0]) if role_org_ids else org
+            assert operator_org is not None
+            by_type: dict[str, str] = {}
+            for contact in contacts:
+                by_type.setdefault(contact.contact_type, contact.value)
+            timing, _ = timing_value(opportunity.stage, {signal.signal_type for signal in signals})
             writer.writerow(
                 {
                     "organization": org.legal_name or org.canonical_name,
                     "brand": org.dba_name or org.canonical_name,
+                    "operating_brand": operator_org.dba_name or operator_org.canonical_name,
+                    "operator_status": enrichment.operator_status if enrichment else "UNKNOWN",
                     "city": location.city,
                     "address": location.address_line_1,
                     "industry": org.industry,
                     "stage": opportunity.stage,
                     "opportunity_type": opportunity.opportunity_type,
                     "score": opportunity.score,
+                    "vendor_readiness_score": enrichment.vendor_readiness_score
+                    if enrichment
+                    else 0,
+                    "independent_signal_count": len(independent_signal_families(signals)),
+                    "contactability_status": enrichment.contactability_status
+                    if enrichment
+                    else "NOT_CONTACTABLE",
+                    "official_website": by_type.get("website", ""),
+                    "business_phone": by_type.get("phone", ""),
+                    "business_email": by_type.get("email", ""),
+                    "contact_page": by_type.get("contact_page", ""),
+                    "timing_value": timing,
                     "stage_confidence": opportunity.stage_confidence,
                     "signal_count": len(signals),
                     "first_detected_at": opportunity.first_detected_at,
@@ -617,6 +711,134 @@ def export_vendor_validation(db: Session, vendor_name: str, path: Path) -> int:
                     "source_provenance": "; ".join(
                         sorted({signal.source_url for signal in signals})
                     ),
+                }
+            )
+            rows += 1
+    return rows
+
+
+def export_vendor_ready(db: Session, vendor_name: str, path: Path) -> int:
+    if vendor_name not in VENDOR_PROFILES:
+        raise ValueError(f"Unknown vendor profile: {vendor_name}")
+    reviews = latest_reviews(db)
+    fields = [
+        "business",
+        "legal_entity",
+        "operator_status",
+        "city",
+        "address",
+        "industry",
+        "stage",
+        "opportunity_score",
+        "vendor_readiness_score",
+        "vendor_readiness_band",
+        "independent_signal_count",
+        "contactability_status",
+        "official_website",
+        "business_phone",
+        "business_email",
+        "contact_page",
+        "why_now",
+        "relevant_services",
+        "source_links",
+        "last_updated",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = 0
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for opportunity, org, location, enrichment in db.execute(
+            select(Opportunity, Organization, Location, OpportunityEnrichment)
+            .join(Organization, Opportunity.organization_id == Organization.id)
+            .join(Location, Opportunity.location_id == Location.id)
+            .join(OpportunityEnrichment, OpportunityEnrichment.opportunity_id == Opportunity.id)
+        ):
+            review = reviews.get(opportunity.id)
+            if (
+                not review
+                or review.verdict != "actionable"
+                or enrichment.vendor_readiness_score < 50
+                or enrichment.contactability_status not in {"CONTACTABLE", "PARTIALLY_CONTACTABLE"}
+            ):
+                continue
+            needs = list(
+                db.scalars(
+                    select(InferredNeed.service_category).where(
+                        InferredNeed.opportunity_id == opportunity.id
+                    )
+                )
+            )
+            match = match_profile(
+                {
+                    "industry": org.industry,
+                    "city": location.city,
+                    "stage": opportunity.stage,
+                    "score": opportunity.score,
+                    "service_categories": needs,
+                },
+                {**VENDOR_PROFILES[vendor_name], "cities": [location.city]},
+            )
+            if float(match["match_score"]) < 50:
+                continue
+            signals = list(
+                db.scalars(
+                    select(Signal).where(
+                        Signal.organization_id == opportunity.organization_id,
+                        Signal.location_id == opportunity.location_id,
+                    )
+                )
+            )
+            role_org_ids = list(
+                db.scalars(
+                    select(OpportunityOrganizationRole.organization_id).where(
+                        OpportunityOrganizationRole.opportunity_id == opportunity.id,
+                        OpportunityOrganizationRole.role.in_(["operator", "tenant", "franchisee"]),
+                    )
+                )
+            )
+            contact_org_ids = role_org_ids or [org.id]
+            contacts = list(
+                db.scalars(
+                    select(BusinessContact).where(
+                        BusinessContact.organization_id.in_(contact_org_ids),
+                        BusinessContact.status == "active",
+                    )
+                )
+            )
+            by_type: dict[str, str] = {}
+            for contact in contacts:
+                by_type.setdefault(contact.contact_type, contact.value)
+            operator = db.get(Organization, role_org_ids[0]) if role_org_ids else org
+            assert operator is not None
+            _, why_now = timing_value(opportunity.stage, {item.signal_type for item in signals})
+            writer.writerow(
+                {
+                    "business": operator.dba_name or operator.canonical_name,
+                    "legal_entity": operator.legal_name or operator.canonical_name,
+                    "operator_status": enrichment.operator_status,
+                    "city": location.city,
+                    "address": location.address_line_1,
+                    "industry": org.industry,
+                    "stage": opportunity.stage,
+                    "opportunity_score": opportunity.score,
+                    "vendor_readiness_score": enrichment.vendor_readiness_score,
+                    "vendor_readiness_band": enrichment.vendor_readiness_band,
+                    "independent_signal_count": len(independent_signal_families(signals)),
+                    "contactability_status": enrichment.contactability_status,
+                    "official_website": by_type.get("website", ""),
+                    "business_phone": by_type.get("phone", ""),
+                    "business_email": by_type.get("email", ""),
+                    "contact_page": by_type.get("contact_page", ""),
+                    "why_now": why_now,
+                    "relevant_services": ";".join(sorted(needs)),
+                    "source_links": ";".join(
+                        sorted(
+                            {item.source_url for item in signals}
+                            | {item.source_url for item in contacts}
+                        )
+                    ),
+                    "last_updated": enrichment.updated_at,
                 }
             )
             rows += 1
