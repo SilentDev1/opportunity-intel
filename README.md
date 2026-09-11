@@ -1,46 +1,65 @@
 # Opportunity Intel
 
-Phase 0.7 adds provenance-backed business contacts, explicit operator/developer roles, independent
-signal families, explainable vendor-readiness scoring, targeted official-source enrichment, blind
-batch reporting, and vendor-ready exports. See `docs/phase07-validation.md` for measured results.
+**Evidence-first local B2B opportunity intelligence.** Opportunity Intel turns fragmented,
+public municipal activity — planning-board agendas, zoning cases, issued building permits — into
+explainable, vendor-ready sales opportunities. It preserves the underlying evidence first, resolves
+each signal to a real organization and physical location, infers where that business is in its
+lifecycle, and only then produces opportunities and customer matches you can trace back to a source
+document.
 
-Opportunity Intel turns fragmented public business activity into actionable local B2B sales opportunities. It preserves evidence first, resolves signals to organizations and physical locations, infers lifecycle stage, and produces explainable opportunities and customer matches.
-
-It is **not merely a building-permit notification service**. The core flow is:
+It is deliberately **not** "another building-permit alert feed." The value is the chain from a raw
+public record to a defensible, explainable opportunity:
 
 ```text
-Sources → Raw Documents → Raw Records → Signals → Organizations/Locations
-        → Lifecycle → Opportunities → Vendor Needs → Customer Matches
+Sources → Raw Documents → Raw Records → Signals → Organizations / Locations
+        → Lifecycle stage → Opportunities → Inferred Vendor Needs → Customer Matches
 ```
 
-## Current state
+## Why it's built this way
 
-This repository is a Phase 0.6 validation engine. It includes the PostgreSQL schema, migrations,
-source-adapter framework, local artifact storage, nine official municipal sources, rules engines,
-an internal API/dashboard, review and validation workflows, CSV export, tests, and CI. The bounded
-combined corpus contains 61 manually reviewed candidates; see the validation reports before interpreting
-the results.
+- **Provenance before inference.** Every signal links back to the exact source document and record
+  it came from — results are auditable, not black-box.
+- **Deterministic extraction, explainable scoring.** Signal families and vendor-readiness scores are
+  rule-based and inspectable — each opportunity can show *why* it scored as it did.
+- **Identity resolution.** Raw records are de-duplicated and resolved to canonical organizations
+  (with aliases) and distinct physical locations, with explicit operator/developer roles.
+- **Honest validation.** The pipeline is measured against a manually reviewed corpus; the repo
+  reports precision/value rather than vanity counts.
 
-Current connected discovery pages:
+## Architecture
 
-- Nashua Planning Board historical archive (official; pre-February 2025)
-- Manchester Planning Board agendas (official)
-- Manchester Zoning Board agendas (official)
-- Salem Planning Board Agenda Center (official)
-- Bedford Planning Board Agenda Center (official)
-- Portsmouth Planning Board materials (official)
-- Dover Down to Business archive (official; enrichment)
-- Salem issued building permits (official; historical bulk reports through October 2025)
-- Salem hawker/peddler licenses (official; tested and found low-value)
+```text
+src/opportunity_intel/
+  collectors.py     Source adapters — fetch official municipal pages/PDFs
+  storage.py        Local artifact storage for raw source documents (evidence)
+  processing.py     Raw records → signals → organizations/locations → opportunities
+  enrichment.py     Targeted official-source contact/role enrichment
+  services.py       Vendor-need inference, customer matching, validation summaries
+  reporting.py      Blind batch reports + vendor-ready CSV exports
+  models.py         SQLAlchemy schema (sources, documents, signals, orgs, opportunities…)
+  main.py / cli.py  FastAPI internal dashboard/API + Typer CLI
+  registry.py       Declarative source registry
+migrations/         Alembic schema migrations
+docs/               Source maps, per-phase validation reports, methodology
+tests/              Unit + workflow tests
+```
 
-See [the source map](docs/nh-source-map.md) for researched sources and precise implementation status.
+**Stack:** Python 3.11 · FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL · Typer CLI · httpx ·
+BeautifulSoup · pypdf · Jinja2 · Ruff · MyPy · pytest · GitHub Actions CI.
 
-## Setup
+## Sources
 
-Requirements: Python 3.11+, `uv`, Docker (for local PostgreSQL).
+Discovery is bounded to **official municipal sources** (New Hampshire), currently including
+Nashua / Manchester / Salem / Bedford / Portsmouth / Dover planning & zoning materials and Salem
+issued building permits. See [`docs/nh-source-map.md`](docs/nh-source-map.md) for the researched
+source map and precise per-source implementation status.
+
+## Run it locally
+
+Requirements: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Docker (local PostgreSQL).
 
 ```bash
-cp .env.example .env
+cp .env.example .env            # set a strong ADMIN_API_KEY
 docker compose up -d db
 uv sync --all-extras
 uv run alembic upgrade head
@@ -48,50 +67,25 @@ uv run opportunity-intel seed-sources
 uv run uvicorn opportunity_intel.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/` for the internal dashboard and `/api/docs` for API documentation. Set a strong `ADMIN_API_KEY`; collection endpoints return 403 when it is absent or incorrect.
+Open `http://127.0.0.1:8000/` for the internal dashboard and `/api/docs` for API docs. Collection
+endpoints return `403` without the correct `ADMIN_API_KEY`.
 
-## Collection and validation
-
-```bash
-uv run opportunity-intel collect "Manchester Planning Board Agendas" --limit 20
-uv run opportunity-intel collect-all --limit 20
-uv run opportunity-intel process
-uv run opportunity-intel validate
-uv run opportunity-intel import-reviews data/review-decisions-phase05.csv
-uv run opportunity-intel export-validation --path data/exports/phase05-reviewed.csv
-uv run opportunity-intel vendor-simulation
-uv run opportunity-intel export-actionable-matrix
-```
-
-These commands are cron-compatible. Collectors use timeouts, a descriptive user agent, bounded retry/backoff, a delay between documents, content hashes, idempotent constraints, local raw artifact retention, and isolated collection runs.
-
-## Development
+Typical pipeline:
 
 ```bash
-make test
-make lint
-make typecheck
-make migrate
+uv run opportunity-intel collect-all --limit 20   # fetch + store raw evidence
+uv run opportunity-intel process                  # signals → orgs/locations → opportunities
+uv run opportunity-intel validate                 # measure quality vs reviewed corpus
 ```
 
-CI runs Ruff, mypy, PostgreSQL migration upgrade/downgrade/upgrade, and pytest without production secrets.
+## Status
 
-## API
+Validation-stage engine. It ships the PostgreSQL schema + migrations, the source-adapter framework,
+several official municipal sources, the rules engines, the internal API/dashboard, review/validation
+workflows, CSV export, tests, and CI. Results are reported against a **bounded, manually reviewed
+corpus** — read the validation reports in `docs/` before interpreting numbers. A deeper design
+narrative is in [`docs/PROJECT_WRITEUP.md`](docs/PROJECT_WRITEUP.md).
 
-Read endpoints include `/health`, `/sources`, `/sources/health`, `/organizations`, `/locations`, `/signals`, `/opportunities`, `/validation/summary`, and `/match`. `POST /collect/{source_id}` requires `X-Admin-Key`. Admin endpoints are not usable unless `ADMIN_API_KEY` is configured.
+## License
 
-## Known limitations
-
-- The nine sources have uneven historical windows; Nashua and Salem permit collectors are archives,
-  not current bulk feeds.
-- PDF text extraction and source-specific rules do not handle scanned documents without OCR.
-- The 45-candidate review set is bounded and is not a statewide weekly-volume estimate.
-- Phase 0.6 has begun Week 1 of a four-week observation; future weekly results do not yet exist.
-- No geocoder is included; radius matching needs defensible coordinates before use.
-- State registries and license lookups require further terms/API assessment; no browser automation or CAPTCHA circumvention is used.
-- The initial migration uses SQLAlchemy metadata to keep the prototype schema concise. Later migrations should use explicit Alembic operations.
-- Authentication is an internal shared-key control, not production customer authentication.
-
-## Responsible use
-
-Collect only legitimately public commercial information. Do not bypass authentication, CAPTCHAs, rate limits, or site restrictions. Avoid personal addresses and personal contact data. Every factual opportunity claim must link to its source evidence.
+See [`LICENSE`](LICENSE) — all rights reserved; published for portfolio review only.
